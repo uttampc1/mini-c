@@ -252,6 +252,40 @@ void parse_primary(struct Parser *p) {
   return;
 }
 
+// term -> primary (STAR primary)*
+void parse_term(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+
+  parse_primary(p);
+  while (p->has_error == 0 && is_current_token(p, TOKEN_STAR)) {
+    expect_token(p, TOKEN_STAR);
+    parse_primary(p);
+  }
+
+  return;
+}
+
+// expression -> term ((PLUS | MINUS) term)*
+void parse_expression(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+
+  parse_term(p);
+  while (p->has_error == 0) {
+    if (is_current_token(p, TOKEN_PLUS)) {
+      expect_token(p, TOKEN_PLUS);
+    } else if (is_current_token(p, TOKEN_MINUS)) {
+      expect_token(p, TOKEN_MINUS);
+    } else {
+      break;
+    }
+    parse_term(p);
+  }
+  return;
+}
 // expression -> primary ((PLUS | MINUS) primary)*
 // x=y;
 // x=1;
@@ -259,7 +293,7 @@ void parse_primary(struct Parser *p) {
 // x=1+2;
 // x=1-2;
 // x=a+b;
-void parse_expression(struct Parser *p) {
+void parse_expression2(struct Parser *p) {
   if (p->has_error) {
     return;
   }
@@ -349,13 +383,17 @@ int main(void) {
   code="x=1-2;";
   code="x=1+2-3-1+4;";
   code="x=1-;";
+  code="x=1+2*3;";
+  code="x=1*2+3;";
+  code="x=1+2*3-4;";
+  code="x=1-2*;";
 
   printf("Input: %s\n", code);
   // Lexer
   tokenize(code, tokens, &token_count);
-  //for (int i = 0; i < token_count; i++) {
-  //  print_token(tokens[i]);
-  //}
+  for (int i = 0; i < token_count; i++) {
+    print_token(tokens[i]);
+  }
 
   // Parser
   struct Parser p;
