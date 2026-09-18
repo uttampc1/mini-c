@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <string.h>
+#define BUFFER_SIZE 256
+
 enum TokenType {
   TOKEN_NUMBER,
   TOKEN_IDENTIFIER,
@@ -6,9 +9,17 @@ enum TokenType {
   TOKEN_STAR,
   TOKEN_MINUS,
   TOKEN_EQUAL,
+  TOKEN_LPAREN,
+  TOKEN_RPAREN,
   TOKEN_SEMICOLON,
   TOKEN_UNKNOWN,
   TOKEN_EOF
+};
+
+enum ASTNodeType {
+  AST_NUMBER,
+  AST_IDENTIFIER,
+  AST_BINARY
 };
 
 struct Token {
@@ -22,6 +33,20 @@ struct Parser {
   int pos;
   int has_error;
 };
+
+struct ASTNode {
+  enum ASTNodeType kind;
+  int  number_value;
+  char identifier_name[BUFFER_SIZE];
+  enum TokenType operator_kind;
+  struct ASTNode *left;
+  struct ASTNode *right;
+};
+
+struct ASTNode * createNumberNode(int value);
+struct ASTNode * createIdentifierNode(char *name);
+struct ASTNode * createBinaryNode(enum TokenType type, struct ASTNode * leftNode, struct ASTNode * rightNode);
+void parse_expression(struct Parser *p);
 
 char *token_type_name(enum TokenType type) {
   switch (type) {
@@ -37,6 +62,10 @@ char *token_type_name(enum TokenType type) {
       return "MINUS";
     case TOKEN_EQUAL:
       return "EQUAL";
+    case TOKEN_LPAREN:
+      return "LPAREN";
+    case TOKEN_RPAREN:
+      return "RPAREN";
     case TOKEN_SEMICOLON:
       return "SEMICOLON";
     case TOKEN_UNKNOWN:
@@ -88,6 +117,14 @@ int is_plus(char c) {
 
 int is_minus(char c) {
   return (c == '-');
+}
+
+int is_lparen(char c) {
+  return (c == '(');
+}
+
+int is_rparen(char c) {
+  return (c == ')');
 }
 
 int is_space(char c) {
@@ -171,6 +208,12 @@ void tokenize(char *code, struct Token tokens[], int *token_count) {
     } else if (is_equal(code[idx])) {
       add_token(tokens, token_count, TOKEN_EQUAL, code + idx, 1);
       idx++;
+    } else if (is_lparen(code[idx])) {
+      add_token(tokens, token_count, TOKEN_LPAREN, code + idx, 1);
+      idx++;
+    } else if (is_rparen(code[idx])) {
+      add_token(tokens, token_count, TOKEN_RPAREN, code + idx, 1);
+      idx++;
     } else if (is_alpha(code[idx])) {
       int start = idx;
       idx = scan_identifier(code, idx);
@@ -219,6 +262,22 @@ void expect_token(struct Parser *p, enum TokenType type) {
 // assignment = identifier = number
 
 // parser function per grammer rule
+void parse_lparen(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_LPAREN);
+  return;
+}
+
+void parse_rparen(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_RPAREN);
+  return;
+}
+
 void parse_number(struct Parser *p) {
   if (p->has_error) {
     return;
@@ -235,8 +294,29 @@ void parse_identifier(struct Parser *p) {
   return;
 }
 
-// primary -> NUMBER | IDENTIFIER
+// primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
 void parse_primary(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+
+  if (is_current_token(p, TOKEN_NUMBER)) {
+    parse_number(p);
+  } else if (is_current_token(p, TOKEN_IDENTIFIER))  {
+    parse_identifier(p);
+  } else if (is_current_token(p, TOKEN_LPAREN)) {
+    parse_lparen(p);
+    parse_expression(p);
+    parse_rparen(p);
+  } else {
+    p->has_error = 1;
+    printf("Expected primary\n");
+  }
+  return;
+}
+
+// primary -> NUMBER | IDENTIFIER
+void parse_primary0(struct Parser *p) {
   if (p->has_error) {
     return;
   }
@@ -374,6 +454,57 @@ void parse_assignment(struct Parser *p) {
   return;
 }
 
+struct ASTNode * createNumberNode(int value) {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("Couldn't allocate memory for ASTNode\n");
+  } else {
+    node->kind = AST_NUMBER;
+    node->number_value = value;
+    node->left = NULL;
+    node->right = NULL;
+    node->identifier_name[0] = '\0';
+    node->operator_kind = TOKEN_EOF;
+  }
+  return node;
+}
+
+struct ASTNode * createIdentifierNode(char *name) {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("Couldn't allocate memory for ASTNode\n");
+  } else {
+    node->kind = AST_IDENTIFIER;
+    node->number_value = -99999;
+    node->left = NULL;
+    node->right = NULL;
+    size_t len = strlen(name);
+    int bytesToCopy = (len >= BUFFER_SIZE) ? BUFFER_SIZE-1 : len;
+    strncpy(node->identifier_name, name, bytesToCopy);
+    node->identifier_name[bytesToCopy] = '\0';
+    node->operator_kind = TOKEN_EOF;
+  }
+  return node;
+}
+
+struct ASTNode * createBinaryNode(enum TokenType type, struct ASTNode * leftNode, struct ASTNode * rightNode) {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("Couldn't allocate memory for ASTNode\n");
+  } else {
+    node->kind = AST_BINARY;
+    node->number_value = -99999;
+    node->left = leftNode;
+    node->right = rightNode;
+    node->identifier_name[0] = '\0';
+    node->operator_kind = type;
+  }
+  return node;
+}
+
 int main(void) {
   struct Token tokens[100];
   int token_count = 0;
@@ -387,6 +518,8 @@ int main(void) {
   code="x=1*2+3;";
   code="x=1+2*3-4;";
   code="x=1-2*;";
+  code="x=(1+2)*3+(4*1);";
+  code="x=(2*3;";
 
   printf("Input: %s\n", code);
   // Lexer
