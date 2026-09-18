@@ -4,6 +4,7 @@ enum TokenType {
   TOKEN_IDENTIFIER,
   TOKEN_PLUS,
   TOKEN_STAR,
+  TOKEN_MINUS,
   TOKEN_EQUAL,
   TOKEN_SEMICOLON,
   TOKEN_UNKNOWN,
@@ -32,6 +33,8 @@ char *token_type_name(enum TokenType type) {
       return "PLUS";
     case TOKEN_STAR:
       return "STAR";
+    case TOKEN_MINUS:
+      return "MINUS";
     case TOKEN_EQUAL:
       return "EQUAL";
     case TOKEN_SEMICOLON:
@@ -81,6 +84,10 @@ int is_semicolon(char c) {
 
 int is_plus(char c) {
   return (c == '+');
+}
+
+int is_minus(char c) {
+  return (c == '-');
 }
 
 int is_space(char c) {
@@ -152,6 +159,9 @@ void tokenize(char *code, struct Token tokens[], int *token_count) {
     } else if (is_plus(code[idx])) {
       add_token(tokens, token_count, TOKEN_PLUS, code + idx, 1);
       idx++;
+    } else if (is_minus(code[idx])) {
+      add_token(tokens, token_count, TOKEN_MINUS, code + idx, 1);
+      idx++;
     } else if (is_semicolon(code[idx])) {
       add_token(tokens, token_count, TOKEN_SEMICOLON, code + idx, 1);
       idx++;
@@ -194,7 +204,7 @@ struct Token current_token(struct Parser *p) {
 void expect_token(struct Parser *p, enum TokenType type) {
   struct Token t = p->tokens[p->pos];
   if (t.type == type) {
-    printf("Found token: %s\n", token_type_name(type));
+    //printf("Found token: %s\n", token_type_name(type));
     advance_token(p);
   } else {
     p->has_error = 1;
@@ -241,6 +251,33 @@ void parse_primary(struct Parser *p) {
   }
   return;
 }
+
+// expression -> primary ((PLUS | MINUS) primary)*
+// x=y;
+// x=1;
+// x=1+; // syntax error. return on has_error
+// x=1+2;
+// x=1-2;
+// x=a+b;
+void parse_expression(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+
+  parse_primary(p);
+  while (p->has_error == 0) {
+    if (is_current_token(p, TOKEN_PLUS)) {
+      expect_token(p, TOKEN_PLUS);
+    } else if (is_current_token(p, TOKEN_MINUS)) {
+      expect_token(p, TOKEN_MINUS);
+    } else {
+      break;
+    }
+    parse_primary(p);
+  }
+  return;
+}
+
 // expression -> primary (PLUS primary)*
 // x=y;
 // x=1;
@@ -249,7 +286,7 @@ void parse_primary(struct Parser *p) {
 // x=a+b;
 // x=1+2+3;
 // x=1+2+3+b;
-void parse_expression(struct Parser *p) {
+void parse_expression1(struct Parser *p) {
   if (p->has_error) {
     return;
   }
@@ -304,12 +341,14 @@ void parse_assignment(struct Parser *p) {
 }
 
 int main(void) {
-  char *code = "x=123+45*2;";
   struct Token tokens[100];
   int token_count = 0;
 
+  char *code = "x=123+45*2;";
   code="x=1+2+3;";
   code="x=1-2;";
+  code="x=1+2-3-1+4;";
+  code="x=1-;";
 
   printf("Input: %s\n", code);
   // Lexer
