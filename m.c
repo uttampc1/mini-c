@@ -16,6 +16,12 @@ struct Token {
   int length;
 };
 
+struct Parser {
+  struct Token *tokens;
+  int pos;
+  int has_error;
+};
+
 char *token_type_name(enum TokenType type) {
   switch (type) {
     case TOKEN_NUMBER:
@@ -38,6 +44,7 @@ char *token_type_name(enum TokenType type) {
   return "UNKNOWN";
 }
 
+// lexer
 void add_token(struct Token tokens[], int *token_count, enum TokenType type, char *start, int length) {
   struct Token t;
   t.type = type;
@@ -99,6 +106,7 @@ int scan_identifier(char *code, int start) {
   return i;
 }
 
+#if 0 //NOT USED, handled directly in the tokenizer
 void scan_equal(char *code, int index) {
   //printf("EQUAL: %c\n", code[index]);
 }
@@ -114,8 +122,8 @@ void scan_semicolon(char *code, int index) {
 void scan_plus(char *code, int index) {
   //printf("PLUS: %c\n", code[index]);
 }
+#endif
 
-// code="42;"
 int scan_number(char *code, int start) {
   int i=start;
 
@@ -165,23 +173,170 @@ void tokenize(char *code, struct Token tokens[], int *token_count) {
   add_token(tokens, token_count, TOKEN_EOF, code + idx, 0);
 }
 
+// Parser
+int is_current_token(struct Parser *p, enum TokenType type) {
+  struct Token t = p->tokens[p->pos];
+  if (t.type == type) {
+    return 1;
+  }
+  return 0;
+}
+
+void advance_token(struct Parser *p) {
+  p->pos = p->pos + 1;
+  return;
+}
+
+struct Token current_token(struct Parser *p) {
+  return p->tokens[p->pos];
+}
+
+void expect_token(struct Parser *p, enum TokenType type) {
+  struct Token t = p->tokens[p->pos];
+  if (t.type == type) {
+    printf("Found token: %s\n", token_type_name(type));
+    advance_token(p);
+  } else {
+    p->has_error = 1;
+    printf("Didn't find the expected token: %s\n", token_type_name(type));
+  }
+  return;
+}
+
+// grammers
+// number
+// identifier
+// assignment = identifier = number
+
+// parser function per grammer rule
+void parse_number(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_NUMBER);
+  return;
+}
+
+void parse_identifier(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_IDENTIFIER);
+  return;
+}
+
+// primary -> NUMBER | IDENTIFIER
+void parse_primary(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+
+  if (is_current_token(p, TOKEN_NUMBER)) {
+    parse_number(p);
+  } else if (is_current_token(p, TOKEN_IDENTIFIER))  {
+    parse_identifier(p);
+  } else {
+    p->has_error = 1;
+    printf("Expected primary\n");
+  }
+  return;
+}
+// expression -> primary (PLUS primary)*
+// x=y;
+// x=1;
+// x=1+; // syntax error. return on has_error
+// x=1+2;
+// x=a+b;
+// x=1+2+3;
+// x=1+2+3+b;
+void parse_expression(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+
+  parse_primary(p);
+  while (p->has_error == 0 && is_current_token(p, TOKEN_PLUS)) {
+    expect_token(p, TOKEN_PLUS);
+    parse_primary(p);
+  }
+  return;
+}
+
+// expression -> primary
+void parse_expression0(struct Parser *p) {
+  parse_primary(p);
+  return;
+}
+
+// assignment -> IDENTIFIER EQUAL NUMBER SEMICOLON
+void parse_assignment0(struct Parser *p) {
+  parse_identifier(p);
+  expect_token(p, TOKEN_EQUAL);
+  parse_number(p);
+  expect_token(p, TOKEN_SEMICOLON);
+  return;
+}
+
+// assignment -> IDENTIFIER EQUAL primary SEMICOLON
+// primary -> NUMBER | IDENTIFIER
+void parse_assignment1(struct Parser *p) {
+  parse_identifier(p);
+  expect_token(p, TOKEN_EQUAL);
+  parse_primary(p);
+  expect_token(p, TOKEN_SEMICOLON);
+  return;
+}
+
+// assignment -> IDENTIFIER EQUAL expression SEMICOLON
+// expression -> primary
+void parse_assignment(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  parse_identifier(p);
+  expect_token(p, TOKEN_EQUAL);
+  parse_expression(p);
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_SEMICOLON);
+  return;
+}
+
 int main(void) {
   char *code = "x=123+45*2;";
   struct Token tokens[100];
   int token_count = 0;
+
+  code="x=1+2+3;";
+  code="x=1-2;";
+
   printf("Input: %s\n", code);
+  // Lexer
   tokenize(code, tokens, &token_count);
-  for (int i = 0; i < token_count; i++) {
-    print_token(tokens[i]);
+  //for (int i = 0; i < token_count; i++) {
+  //  print_token(tokens[i]);
+  //}
+
+  // Parser
+  struct Parser p;
+  p.tokens = tokens;
+  p.pos = 0;
+  p.has_error = 0;
+
+  parse_assignment(&p);
+  if (p.has_error) {
+    printf("Parsing failed\n");
+  } else {
+    printf("Parsing successful\n");
   }
-#if 0
-  if (is_plus(code[idx])) {
-    printf("Found plus sign\n");
-    idx++;
-  }
-  skip_spaces(code, &idx);
-  printf("New idx: %d, Next Char:%c\n", idx, code[idx]);
-  scan_number(code, idx);
-#endif
+  printf("Stopped at: ");
+  print_token(current_token(&p));
+  /*
+  expect_token(&p, TOKEN_IDENTIFIER);
+  expect_token(&p, TOKEN_EQUAL);
+  struct Token t = current_token(&p);
+  */
+
   return 0;
 }
