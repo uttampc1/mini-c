@@ -10,6 +10,7 @@ enum TokenType {
   TOKEN_IDENTIFIER,
   TOKEN_PLUS,
   TOKEN_STAR,
+  TOKEN_SLASH,
   TOKEN_MINUS,
   TOKEN_EQUAL,
   TOKEN_LPAREN,
@@ -80,6 +81,8 @@ char *token_type_name(enum TokenType type) {
       return "PLUS";
     case TOKEN_STAR:
       return "STAR";
+    case TOKEN_SLASH:
+      return "SLASH";
     case TOKEN_MINUS:
       return "MINUS";
     case TOKEN_EQUAL:
@@ -146,6 +149,10 @@ int is_equal(char c) {
 
 int is_star(char c) {
   return (c == '*');
+}
+
+int is_slash(char c) {
+  return (c == '/');
 }
 
 int is_semicolon(char c) {
@@ -227,6 +234,9 @@ void tokenize(char *code, struct Token tokens[], int *token_count) {
       idx++;
     } else if (is_star(code[idx])) {
       add_token(tokens, token_count, TOKEN_STAR, code + idx, 1);
+      idx++;
+    } else if (is_slash(code[idx])) {
+      add_token(tokens, token_count, TOKEN_SLASH, code + idx, 1);
       idx++;
     } else if (is_equal(code[idx])) {
       add_token(tokens, token_count, TOKEN_EQUAL, code + idx, 1);
@@ -444,7 +454,7 @@ struct ASTNode * parse_primary(struct Parser *p) {
   return NULL;
 }
 
-// term -> primary (STAR primary)*
+// term -> primary ((STAR | SLASH) primary)*
 struct ASTNode * parse_term(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -453,15 +463,32 @@ struct ASTNode * parse_term(struct Parser *p) {
   struct ASTNode * left = NULL;
 
   left = parse_primary(p);
+  if (left == NULL) {
+    p->has_error = 1;
+    return NULL;
+  }
 
-  while (p->has_error == 0 && is_current_token(p, TOKEN_STAR)) {
-    expect_token(p, TOKEN_STAR);
+  while (p->has_error == 0) {
+    struct Token token = current_token(p);
+    if (is_current_token(p, TOKEN_STAR)) {
+      expect_token(p, TOKEN_STAR);  // consume the token
+    } else if (is_current_token(p, TOKEN_SLASH)) {
+      expect_token(p, TOKEN_SLASH); // consume the token
+    } else {
+      break;
+    }
+
+    if ( p->has_error) {
+      break;
+    }
+
     struct ASTNode * right = parse_primary(p);
     if (right == NULL) {
       p->has_error = 1;
-      continue;
+      break;
     }
-    struct ASTNode * node = createBinaryNode(TOKEN_STAR, left, right);
+
+    struct ASTNode * node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
     } else {
@@ -487,17 +514,23 @@ struct ASTNode * parse_expression(struct Parser *p) {
   while (p->has_error == 0) {
     struct Token token = current_token(p);
     if (is_current_token(p, TOKEN_PLUS)) {
-      expect_token(p, TOKEN_PLUS);
+      expect_token(p, TOKEN_PLUS);  // consume the token
     } else if (is_current_token(p, TOKEN_MINUS)) {
-      expect_token(p, TOKEN_MINUS);
+      expect_token(p, TOKEN_MINUS); // consume the token
     } else {
       break;
     }
+
+    if ( p->has_error) {
+      break;
+    }
+
     struct ASTNode * right = parse_term(p);
     if (right == NULL) {
       p->has_error = 1;
-      continue;
+      break;
     }
+
     struct ASTNode * node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
@@ -519,24 +552,35 @@ struct ASTNode * parse_assignment(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
+
   struct ASTNode * left = parse_identifier(p);
-  // check if returned node is an identifier
-  // set error if it is not
-  if ( (p->has_error == 0) && (left != NULL) ) {
-    expect_token(p, TOKEN_EQUAL);
-    if (p->has_error == 0) {
-      struct ASTNode * right = parse_expression(p);
-      if (p->has_error == 0 && right != NULL) {
-        expect_token(p, TOKEN_SEMICOLON);
-        if (p->has_error == 0) {
-          struct ASTNode * node = createAssignmentNode(left, right);
-          return node;
-        }
-      }
-    }
+  if ( left == NULL ) {
+    p->has_error = 1;
+    return NULL;
   }
 
-  return NULL;
+  expect_token(p, TOKEN_EQUAL);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  struct ASTNode * right = parse_expression(p);
+  if ( right == NULL ) {
+    p->has_error = 1;
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  struct ASTNode * node = createAssignmentNode(left, right);
+  if (node == NULL) {
+    p->has_error = 1;
+  }
+
+  return node;
 }
 
 int main(void) {
@@ -558,7 +602,12 @@ int main(void) {
   code="x=(2+3)*4;";
   code="x=1+2+3;";
   code="x=2*3*4;";
-  code="x=a+b;";
+  code="x=(a+b)*c;";
+  code="x=8/2;";
+  code="x=8/2*3;";
+  code="x=8/(2*4);";
+  code="x=a/b+c;";
+  code="x=(1+2)*3/(4*1);";
 
   printf("Input: %s\n", code);
   // Lexer
