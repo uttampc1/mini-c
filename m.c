@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
 #define BUFFER_SIZE 256
+#define SPACES 2
 
 enum TokenType {
   TOKEN_NUMBER,
@@ -19,13 +22,14 @@ enum TokenType {
 enum ASTNodeType {
   AST_NUMBER,
   AST_IDENTIFIER,
-  AST_BINARY
+  AST_BINARY,
+  AST_ASSIGNMENT
 };
 
 struct Token {
   enum TokenType type;
   char *start;
-  int length;
+  int  length;
 };
 
 struct Parser {
@@ -46,7 +50,25 @@ struct ASTNode {
 struct ASTNode * createNumberNode(int value);
 struct ASTNode * createIdentifierNode(char *name);
 struct ASTNode * createBinaryNode(enum TokenType type, struct ASTNode * leftNode, struct ASTNode * rightNode);
-void parse_expression(struct Parser *p);
+struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode);
+struct ASTNode * parse_expression(struct Parser *p);
+struct ASTNode * parse_primary(struct Parser *p);
+struct ASTNode * parse_term(struct Parser *p);
+
+char *node_type_name(enum ASTNodeType kind) {
+  switch (kind) {
+    case AST_NUMBER:
+      return "NUMBER";
+    case AST_IDENTIFIER:
+      return "IDENTIFIER";
+    case AST_BINARY:
+      return "BINARY";
+    case AST_ASSIGNMENT:
+      return "ASSIGNMENT";
+  }
+
+  return "AST_UNKNOWN";
+}
 
 char *token_type_name(enum TokenType type) {
   switch (type) {
@@ -93,6 +115,25 @@ void print_token(struct Token t) {
   } else {
     printf("%s: %.*s\n", token_type_name(t.type), t.length, t.start);
   }
+}
+
+void print_ast_tree(struct ASTNode *root, int depth) {
+  struct ASTNode * t = root;
+
+  if (t == NULL) {
+    return;
+  }
+  if (t->kind == AST_ASSIGNMENT) {
+    printf("%*s %s\n", SPACES*depth, ".", node_type_name(t->kind));
+  } else if (t->kind == AST_NUMBER) {
+    printf("%*s %s %d\n", SPACES*depth, ".", node_type_name(t->kind), t->number_value);
+  } else if (t->kind == AST_IDENTIFIER) {
+    printf("%*s %s %s\n", SPACES*depth, ".", node_type_name(t->kind), t->identifier_name);
+  } else if (t->kind == AST_BINARY) {
+    printf("%*s %s %s\n", SPACES*depth, ".", node_type_name(t->kind), token_type_name(t->operator_kind));
+  }
+  print_ast_tree(t->left, depth+1);
+  print_ast_tree(t->right, depth+1);
 }
 
 int is_alpha(char c) {
@@ -149,24 +190,6 @@ int scan_identifier(char *code, int start) {
   }
   return i;
 }
-
-#if 0 //NOT USED, handled directly in the tokenizer
-void scan_equal(char *code, int index) {
-  //printf("EQUAL: %c\n", code[index]);
-}
-
-void scan_star(char *code, int index) {
-  //printf("STAR: %c\n", code[index]);
-}
-
-void scan_semicolon(char *code, int index) {
-  //printf("SEMICOLON: %c\n", code[index]);
-}
-
-void scan_plus(char *code, int index) {
-  //printf("PLUS: %c\n", code[index]);
-}
-#endif
 
 int scan_number(char *code, int start) {
   int i=start;
@@ -256,204 +279,6 @@ void expect_token(struct Parser *p, enum TokenType type) {
   return;
 }
 
-// grammers
-// number
-// identifier
-// assignment = identifier = number
-
-// parser function per grammer rule
-void parse_lparen(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-  expect_token(p, TOKEN_LPAREN);
-  return;
-}
-
-void parse_rparen(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-  expect_token(p, TOKEN_RPAREN);
-  return;
-}
-
-void parse_number(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-  expect_token(p, TOKEN_NUMBER);
-  return;
-}
-
-void parse_identifier(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-  expect_token(p, TOKEN_IDENTIFIER);
-  return;
-}
-
-// primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
-void parse_primary(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-
-  if (is_current_token(p, TOKEN_NUMBER)) {
-    parse_number(p);
-  } else if (is_current_token(p, TOKEN_IDENTIFIER))  {
-    parse_identifier(p);
-  } else if (is_current_token(p, TOKEN_LPAREN)) {
-    parse_lparen(p);
-    parse_expression(p);
-    parse_rparen(p);
-  } else {
-    p->has_error = 1;
-    printf("Expected primary\n");
-  }
-  return;
-}
-
-// primary -> NUMBER | IDENTIFIER
-void parse_primary0(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-
-  if (is_current_token(p, TOKEN_NUMBER)) {
-    parse_number(p);
-  } else if (is_current_token(p, TOKEN_IDENTIFIER))  {
-    parse_identifier(p);
-  } else {
-    p->has_error = 1;
-    printf("Expected primary\n");
-  }
-  return;
-}
-
-// term -> primary (STAR primary)*
-void parse_term(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-
-  parse_primary(p);
-  while (p->has_error == 0 && is_current_token(p, TOKEN_STAR)) {
-    expect_token(p, TOKEN_STAR);
-    parse_primary(p);
-  }
-
-  return;
-}
-
-// expression -> term ((PLUS | MINUS) term)*
-void parse_expression(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-
-  parse_term(p);
-  while (p->has_error == 0) {
-    if (is_current_token(p, TOKEN_PLUS)) {
-      expect_token(p, TOKEN_PLUS);
-    } else if (is_current_token(p, TOKEN_MINUS)) {
-      expect_token(p, TOKEN_MINUS);
-    } else {
-      break;
-    }
-    parse_term(p);
-  }
-  return;
-}
-// expression -> primary ((PLUS | MINUS) primary)*
-// x=y;
-// x=1;
-// x=1+; // syntax error. return on has_error
-// x=1+2;
-// x=1-2;
-// x=a+b;
-void parse_expression2(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-
-  parse_primary(p);
-  while (p->has_error == 0) {
-    if (is_current_token(p, TOKEN_PLUS)) {
-      expect_token(p, TOKEN_PLUS);
-    } else if (is_current_token(p, TOKEN_MINUS)) {
-      expect_token(p, TOKEN_MINUS);
-    } else {
-      break;
-    }
-    parse_primary(p);
-  }
-  return;
-}
-
-// expression -> primary (PLUS primary)*
-// x=y;
-// x=1;
-// x=1+; // syntax error. return on has_error
-// x=1+2;
-// x=a+b;
-// x=1+2+3;
-// x=1+2+3+b;
-void parse_expression1(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-
-  parse_primary(p);
-  while (p->has_error == 0 && is_current_token(p, TOKEN_PLUS)) {
-    expect_token(p, TOKEN_PLUS);
-    parse_primary(p);
-  }
-  return;
-}
-
-// expression -> primary
-void parse_expression0(struct Parser *p) {
-  parse_primary(p);
-  return;
-}
-
-// assignment -> IDENTIFIER EQUAL NUMBER SEMICOLON
-void parse_assignment0(struct Parser *p) {
-  parse_identifier(p);
-  expect_token(p, TOKEN_EQUAL);
-  parse_number(p);
-  expect_token(p, TOKEN_SEMICOLON);
-  return;
-}
-
-// assignment -> IDENTIFIER EQUAL primary SEMICOLON
-// primary -> NUMBER | IDENTIFIER
-void parse_assignment1(struct Parser *p) {
-  parse_identifier(p);
-  expect_token(p, TOKEN_EQUAL);
-  parse_primary(p);
-  expect_token(p, TOKEN_SEMICOLON);
-  return;
-}
-
-// assignment -> IDENTIFIER EQUAL expression SEMICOLON
-// expression -> primary
-void parse_assignment(struct Parser *p) {
-  if (p->has_error) {
-    return;
-  }
-  parse_identifier(p);
-  expect_token(p, TOKEN_EQUAL);
-  parse_expression(p);
-  if (p->has_error) {
-    return;
-  }
-  expect_token(p, TOKEN_SEMICOLON);
-  return;
-}
-
 struct ASTNode * createNumberNode(int value) {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
@@ -505,6 +330,215 @@ struct ASTNode * createBinaryNode(enum TokenType type, struct ASTNode * leftNode
   return node;
 }
 
+struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode) {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("Couldn't allocate memory for ASTNode\n");
+  } else {
+    node->kind = AST_ASSIGNMENT;
+    node->number_value = -9999;
+    node->left = leftNode;
+    node->right = rightNode;
+    node->identifier_name[0] = '\0';
+    node->operator_kind = TOKEN_EOF;
+  }
+  return node;
+}
+
+// grammers
+// number
+// identifier
+// assignment = identifier = number
+
+// parser function per grammer rule
+void parse_lparen(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_LPAREN);
+  return;
+}
+
+void parse_rparen(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_RPAREN);
+  return;
+}
+
+void parse_number(struct Parser *p) {
+  if (p->has_error) {
+    return;
+  }
+  expect_token(p, TOKEN_NUMBER);
+  return;
+}
+
+struct ASTNode * parse_identifier(struct Parser *p) {
+  if (p->has_error) {
+    printf("Expected an identifier\n");
+    return NULL;
+  }
+
+  struct ASTNode * node = NULL;
+  if (is_current_token(p, TOKEN_IDENTIFIER))  {
+    struct Token token = p->tokens[p->pos];
+    int bytesToCopy = (token.length >= BUFFER_SIZE) ? BUFFER_SIZE-1 : token.length;
+    char name[BUFFER_SIZE];
+    strncpy(name, token.start, bytesToCopy);
+    name[bytesToCopy] = '\0';
+    advance_token(p);
+    node = createIdentifierNode(name);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      return node;
+    }
+  } else {
+    p->has_error = 1;
+  }
+
+  printf("Expected an identifier\n");
+  return NULL;
+}
+
+// primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
+struct ASTNode * parse_primary(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * node = NULL;
+
+  if (is_current_token(p, TOKEN_NUMBER)) {
+    struct Token token = p->tokens[p->pos];
+    int bytesToCopy = (token.length >= BUFFER_SIZE) ? BUFFER_SIZE-1 : token.length;
+    char value[BUFFER_SIZE];
+    strncpy(value, token.start, bytesToCopy);
+    value[bytesToCopy] = '\0';
+    advance_token(p);
+    node = createNumberNode(atoi(value));
+    if (node == NULL) {
+      p->has_error = 1;
+    }
+    return node;
+  } else if (is_current_token(p, TOKEN_IDENTIFIER))  {
+    node = parse_identifier(p);
+    return node;
+  } else if (is_current_token(p, TOKEN_LPAREN)) {
+    parse_lparen(p);
+    node = parse_expression(p);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      parse_rparen(p);
+    }
+    return node;
+  }
+
+  p->has_error = 1;
+  printf("Expected primary\n");
+
+  return NULL;
+}
+
+// term -> primary (STAR primary)*
+struct ASTNode * parse_term(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * left = NULL;
+
+  left = parse_primary(p);
+
+  while (p->has_error == 0 && is_current_token(p, TOKEN_STAR)) {
+    expect_token(p, TOKEN_STAR);
+    struct ASTNode * right = parse_primary(p);
+    if (right == NULL) {
+      p->has_error = 1;
+      continue;
+    }
+    struct ASTNode * node = createBinaryNode(TOKEN_STAR, left, right);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      left = node;
+    }
+  }
+
+  if (p->has_error) {
+    return NULL;
+  }
+
+  return left;
+}
+
+// expression -> term ((PLUS | MINUS) term)*
+struct ASTNode * parse_expression(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * left = NULL;
+  left = parse_term(p);
+  while (p->has_error == 0) {
+    struct Token token = current_token(p);
+    if (is_current_token(p, TOKEN_PLUS)) {
+      expect_token(p, TOKEN_PLUS);
+    } else if (is_current_token(p, TOKEN_MINUS)) {
+      expect_token(p, TOKEN_MINUS);
+    } else {
+      break;
+    }
+    struct ASTNode * right = parse_term(p);
+    if (right == NULL) {
+      p->has_error = 1;
+      continue;
+    }
+    struct ASTNode * node = createBinaryNode(token.type, left, right);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      left = node;
+    }
+  }
+
+  if (p->has_error) {
+    return NULL;
+  }
+
+  return left;
+}
+
+// assignment -> IDENTIFIER EQUAL expression SEMICOLON
+// expression -> primary
+struct ASTNode * parse_assignment(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+  struct ASTNode * left = parse_identifier(p);
+  // check if returned node is an identifier
+  // set error if it is not
+  if ( (p->has_error == 0) && (left != NULL) ) {
+    expect_token(p, TOKEN_EQUAL);
+    if (p->has_error == 0) {
+      struct ASTNode * right = parse_expression(p);
+      if (p->has_error == 0 && right != NULL) {
+        expect_token(p, TOKEN_SEMICOLON);
+        if (p->has_error == 0) {
+          struct ASTNode * node = createAssignmentNode(left, right);
+          return node;
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
+
 int main(void) {
   struct Token tokens[100];
   int token_count = 0;
@@ -518,8 +552,13 @@ int main(void) {
   code="x=1*2+3;";
   code="x=1+2*3-4;";
   code="x=1-2*;";
-  code="x=(1+2)*3+(4*1);";
   code="x=(2*3;";
+  code="x=(1+2)*3+(4*1);";
+  code="x=(1+2)*3+(4*1);";
+  code="x=(2+3)*4;";
+  code="x=1+2+3;";
+  code="x=2*3*4;";
+  code="x=a+b;";
 
   printf("Input: %s\n", code);
   // Lexer
@@ -534,7 +573,7 @@ int main(void) {
   p.pos = 0;
   p.has_error = 0;
 
-  parse_assignment(&p);
+  struct ASTNode * node = parse_assignment(&p);
   if (p.has_error) {
     printf("Parsing failed\n");
   } else {
@@ -542,11 +581,8 @@ int main(void) {
   }
   printf("Stopped at: ");
   print_token(current_token(&p));
-  /*
-  expect_token(&p, TOKEN_IDENTIFIER);
-  expect_token(&p, TOKEN_EQUAL);
-  struct Token t = current_token(&p);
-  */
+  printf("Print AST Tree:\n ");
+  print_ast_tree(node, 0);
 
   return 0;
 }
