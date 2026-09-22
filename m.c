@@ -78,21 +78,21 @@ char *token_type_name(enum TokenType type) {
     case TOKEN_IDENTIFIER:
       return "IDENTIFIER";
     case TOKEN_PLUS:
-      return "PLUS";
+      return "+";
     case TOKEN_STAR:
-      return "STAR";
+      return "*";
     case TOKEN_SLASH:
-      return "SLASH";
+      return "/";
     case TOKEN_MINUS:
-      return "MINUS";
+      return "-";
     case TOKEN_EQUAL:
-      return "EQUAL";
+      return "=";
     case TOKEN_LPAREN:
-      return "LPAREN";
+      return "(";
     case TOKEN_RPAREN:
-      return "RPAREN";
+      return ")";
     case TOKEN_SEMICOLON:
-      return "SEMICOLON";
+      return ";";
     case TOKEN_UNKNOWN:
       return "UNKNOWN";
     case TOKEN_EOF:
