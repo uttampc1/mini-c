@@ -24,7 +24,8 @@ enum ASTNodeType {
   AST_NUMBER,
   AST_IDENTIFIER,
   AST_BINARY,
-  AST_ASSIGNMENT
+  AST_ASSIGNMENT,
+  AST_PROGRAM
 };
 
 struct Token {
@@ -46,6 +47,8 @@ struct ASTNode {
   enum TokenType operator_kind;
   struct ASTNode *left;
   struct ASTNode *right;
+  struct ASTNode * statements[BUFFER_SIZE];
+  int    statement_count;
 };
 
 struct ASTNode * createNumberNode(int value);
@@ -55,6 +58,7 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
 struct ASTNode * parse_expression(struct Parser *p);
 struct ASTNode * parse_primary(struct Parser *p);
 struct ASTNode * parse_term(struct Parser *p);
+int add_statenent_to_program(struct ASTNode * program, struct ASTNode * statement);
 
 char *node_type_name(enum ASTNodeType kind) {
   switch (kind) {
@@ -66,6 +70,8 @@ char *node_type_name(enum ASTNodeType kind) {
       return "BINARY";
     case AST_ASSIGNMENT:
       return "ASSIGNMENT";
+    case AST_PROGRAM:
+      return "PROGRAM";
   }
 
   return "AST_UNKNOWN";
@@ -126,14 +132,20 @@ void print_ast_tree(struct ASTNode *root, int depth) {
   if (t == NULL) {
     return;
   }
-  if (t->kind == AST_ASSIGNMENT) {
-    printf("%*s %s\n", SPACES*depth, ".", node_type_name(t->kind));
+  if (t->kind == AST_PROGRAM) {
+    printf("%s\n", node_type_name(t->kind));
+    for (int c=0; c < t->statement_count; c++) {
+      print_ast_tree(t->statements[c], depth+1);
+    }
+    return;
+  } else if (t->kind == AST_ASSIGNMENT) {
+    printf("%*s %s\n", SPACES*depth, " ", node_type_name(t->kind));
   } else if (t->kind == AST_NUMBER) {
-    printf("%*s %s %d\n", SPACES*depth, ".", node_type_name(t->kind), t->number_value);
+    printf("%*s %s %d\n", SPACES*depth, " ", node_type_name(t->kind), t->number_value);
   } else if (t->kind == AST_IDENTIFIER) {
-    printf("%*s %s %s\n", SPACES*depth, ".", node_type_name(t->kind), t->identifier_name);
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), t->identifier_name);
   } else if (t->kind == AST_BINARY) {
-    printf("%*s %s %s\n", SPACES*depth, ".", node_type_name(t->kind), token_type_name(t->operator_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind));
   }
   print_ast_tree(t->left, depth+1);
   print_ast_tree(t->right, depth+1);
@@ -293,7 +305,7 @@ struct ASTNode * createNumberNode(int value) {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for ASTNode\n");
+    printf("Couldn't allocate memory for number ASTNode\n");
   } else {
     node->kind = AST_NUMBER;
     node->number_value = value;
@@ -309,7 +321,7 @@ struct ASTNode * createIdentifierNode(char *name) {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for ASTNode\n");
+    printf("Couldn't allocate memory for identifier ASTNode\n");
   } else {
     node->kind = AST_IDENTIFIER;
     node->number_value = -99999;
@@ -328,7 +340,7 @@ struct ASTNode * createBinaryNode(enum TokenType type, struct ASTNode * leftNode
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for ASTNode\n");
+    printf("Couldn't allocate memory for binary ASTNode\n");
   } else {
     node->kind = AST_BINARY;
     node->number_value = -99999;
@@ -344,7 +356,7 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for ASTNode\n");
+    printf("Couldn't allocate memory for assignment ASTNode\n");
   } else {
     node->kind = AST_ASSIGNMENT;
     node->number_value = -9999;
@@ -354,6 +366,46 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
     node->operator_kind = TOKEN_EOF;
   }
   return node;
+}
+
+// Program node which holds a list of statements and count
+struct ASTNode * createProgramNode() {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("Couldn't allocate memory for program ASTNode\n");
+  } else {
+    node->kind = AST_PROGRAM;
+    node->number_value = -9999;
+    node->left = NULL;
+    node->right = NULL;
+    node->identifier_name[0] = '\0';
+    node->operator_kind = TOKEN_EOF;
+    node->statements[0] = NULL;
+    memset(node->statements, 0, sizeof(node->statements));
+    node->statement_count = 0;
+  }
+
+  return node;
+}
+
+// helper: add new statement to the program node.
+void add_statement_to_program(struct ASTNode * program, struct ASTNode * statement) {
+  struct ASTNode * pNode = program;
+
+  // we can add few checks
+  // program != NULL
+  // program->kind == AST_PROGRAM
+  // statement != NULL
+  if ( (pNode) && (pNode->kind == AST_PROGRAM) && (statement != NULL) ) {
+    int count = pNode->statement_count;
+
+    if (count < 256) {
+     pNode->statements[count] = statement;
+     pNode->statement_count = count + 1;
+    }
+  }
+  return;
 }
 
 // grammers
@@ -583,6 +635,43 @@ struct ASTNode * parse_assignment(struct Parser *p) {
   return node;
 }
 
+// statement -> assignment
+struct ASTNode * parse_statement(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+  struct ASTNode * node = parse_assignment(p);
+  return node;
+}
+
+// program -> statements*
+// statement -> assignment
+struct ASTNode * parse_program(struct Parser *p) {
+
+  struct ASTNode * program = createProgramNode();
+  if (program == NULL) {
+    p->has_error = 1;
+    return NULL;
+  }
+
+  while ((p->has_error == 0) && (!is_current_token(p, TOKEN_EOF))) {
+    struct ASTNode * statement = parse_statement(p);
+    if (statement == NULL) {
+      p->has_error = 1;
+      break;
+    }
+
+    add_statement_to_program(program, statement);
+
+  }
+
+  if (p->has_error) {
+    return NULL;
+  }
+
+  return program;
+}
+
 int main(void) {
   struct Token tokens[100];
   int token_count = 0;
@@ -607,7 +696,7 @@ int main(void) {
   code="x=8/2*3;";
   code="x=8/(2*4);";
   code="x=a/b+c;";
-  code="x=(1+2)*3/(4*1);";
+  code="x=(1+2)*3/(4*1);x=1;";
 
   printf("Input: %s\n", code);
   // Lexer
@@ -622,7 +711,7 @@ int main(void) {
   p.pos = 0;
   p.has_error = 0;
 
-  struct ASTNode * node = parse_assignment(&p);
+  struct ASTNode * program = parse_program(&p);
   if (p.has_error) {
     printf("Parsing failed\n");
   } else {
@@ -631,7 +720,7 @@ int main(void) {
   printf("Stopped at: ");
   print_token(current_token(&p));
   printf("Print AST Tree:\n ");
-  print_ast_tree(node, 0);
+  print_ast_tree(program, 0);
 
   return 0;
 }
