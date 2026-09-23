@@ -530,13 +530,13 @@ struct ASTNode * parse_primary(struct Parser *p) {
   return NULL;
 }
 
-// unary -> '-' unary | primary
+// unary -> ('-' | '+') unary | primary
 struct ASTNode * parse_unary(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
 
-  if (is_current_token(p, TOKEN_MINUS)) {
+  if ( is_current_token(p, TOKEN_MINUS) || is_current_token(p, TOKEN_PLUS) ) {
     struct Token token = current_token(p);
     advance_token(p);
     struct ASTNode * child = parse_unary(p);
@@ -756,6 +756,9 @@ int main(void) {
   code="x=-(1+2);";
   code="x=-;";
   code="x=-(2;";
+  code="x=+5-2;";
+  code="x=+(5-2);";
+  code="x=-+5;";
 
   printf("Input: %s\n", code);
   // Lexer
