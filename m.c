@@ -25,6 +25,7 @@ enum ASTNodeType {
   AST_IDENTIFIER,
   AST_BINARY,
   AST_ASSIGNMENT,
+  AST_UNARY,
   AST_PROGRAM
 };
 
@@ -70,6 +71,8 @@ char *node_type_name(enum ASTNodeType kind) {
       return "BINARY";
     case AST_ASSIGNMENT:
       return "ASSIGNMENT";
+    case AST_UNARY:
+      return "UNARY";
     case AST_PROGRAM:
       return "PROGRAM";
   }
@@ -146,7 +149,12 @@ void print_ast_tree(struct ASTNode *root, int depth) {
     printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), t->identifier_name);
   } else if (t->kind == AST_BINARY) {
     printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind));
+  } else if (t->kind == AST_UNARY) {
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind));
+  } else {
+    printf("%*s UNKNOWN AST NODE\n", SPACES*depth, " ");
   }
+
   print_ast_tree(t->left, depth+1);
   print_ast_tree(t->right, depth+1);
 }
@@ -299,6 +307,22 @@ void expect_token(struct Parser *p, enum TokenType type) {
     printf("Didn't find the expected token: %s\n", token_type_name(type));
   }
   return;
+}
+
+struct ASTNode * createUnaryNode(enum TokenType type) {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("Couldn't allocate memory for unary ASTNode\n");
+  } else {
+    node->kind = AST_UNARY;
+    node->number_value = -9999;
+    node->left = NULL;
+    node->right = NULL;
+    node->identifier_name[0] = '\0';
+    node->operator_kind = type;
+  }
+  return node;
 }
 
 struct ASTNode * createNumberNode(int value) {
@@ -506,7 +530,38 @@ struct ASTNode * parse_primary(struct Parser *p) {
   return NULL;
 }
 
-// term -> primary ((STAR | SLASH) primary)*
+// unary -> '-' unary | primary
+struct ASTNode * parse_unary(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  if (is_current_token(p, TOKEN_MINUS)) {
+    struct Token token = current_token(p);
+    advance_token(p);
+    struct ASTNode * child = parse_unary(p);
+    if ( child == NULL ) {
+      p->has_error = 1;
+      return NULL;
+    }
+
+    struct ASTNode * node = createUnaryNode(token.type);
+    if (node == NULL) {
+      p->has_error = 1;
+      return NULL;
+    }
+
+    node->left = child;
+    return node;
+  } else {
+    struct ASTNode * node = parse_primary(p);
+    return node;
+  }
+
+  return NULL;
+}
+
+// term -> unary ((STAR | SLASH) unary)*
 struct ASTNode * parse_term(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -514,7 +569,7 @@ struct ASTNode * parse_term(struct Parser *p) {
 
   struct ASTNode * left = NULL;
 
-  left = parse_primary(p);
+  left = parse_unary(p);
   if (left == NULL) {
     p->has_error = 1;
     return NULL;
@@ -534,7 +589,7 @@ struct ASTNode * parse_term(struct Parser *p) {
       break;
     }
 
-    struct ASTNode * right = parse_primary(p);
+    struct ASTNode * right = parse_unary(p);
     if (right == NULL) {
       p->has_error = 1;
       break;
@@ -599,7 +654,6 @@ struct ASTNode * parse_expression(struct Parser *p) {
 }
 
 // assignment -> IDENTIFIER EQUAL expression SEMICOLON
-// expression -> primary
 struct ASTNode * parse_assignment(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -645,7 +699,6 @@ struct ASTNode * parse_statement(struct Parser *p) {
 }
 
 // program -> statements*
-// statement -> assignment
 struct ASTNode * parse_program(struct Parser *p) {
 
   struct ASTNode * program = createProgramNode();
@@ -661,8 +714,8 @@ struct ASTNode * parse_program(struct Parser *p) {
       break;
     }
 
+    // add ASTNode representing a statement to the list (program node)
     add_statement_to_program(program, statement);
-
   }
 
   if (p->has_error) {
@@ -697,6 +750,12 @@ int main(void) {
   code="x=8/(2*4);";
   code="x=a/b+c;";
   code="x=(1+2)*3/(4*1);x=1;";
+  code="x=-5;";
+  code="x=--5;";
+  code="x=3*-5;";
+  code="x=-(1+2);";
+  code="x=-;";
+  code="x=-(2;";
 
   printf("Input: %s\n", code);
   // Lexer
