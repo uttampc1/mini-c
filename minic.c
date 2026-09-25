@@ -432,10 +432,74 @@ void add_statement_to_program(struct ASTNode * program, struct ASTNode * stateme
   return;
 }
 
-// grammers
-// number
-// identifier
-// assignment = identifier = number
+// Evaluator
+int eval_expression(struct ASTNode * root) {
+  struct ASTNode * node = root;
+
+  if (node == NULL) {
+    return 0;
+  }
+
+  if (node->kind == AST_NUMBER) {
+    return node->number_value;
+  } else if (node->kind == AST_UNARY) {
+    int value = eval_expression(node->left);
+    if (node->operator_kind == TOKEN_MINUS) {
+      return -(value);
+    } else if (node->operator_kind == TOKEN_PLUS) {
+      return value;
+    }
+  } else if (node->kind == AST_BINARY) {
+    int leftNum = eval_expression(node->left);
+    int rightNum = eval_expression(node->right);
+    if (node->operator_kind == TOKEN_PLUS) {
+      return leftNum + rightNum;
+    } else if (node->operator_kind == TOKEN_MINUS) {
+      return leftNum - rightNum;
+    } else if (node->operator_kind == TOKEN_STAR) {
+      return leftNum * rightNum;
+    } else if (node->operator_kind == TOKEN_SLASH) {
+      return leftNum / rightNum;
+    }
+  } else {
+    printf("Invalid AST_NODE\n");
+  }
+
+  return -9999;
+}
+
+int eval_statement(struct ASTNode * root) {
+  struct ASTNode * node = root;
+  if (node == NULL) {
+    return 0;
+  }
+
+  if (node->kind == AST_ASSIGNMENT) {
+    int result = eval_expression(node->right);
+    char *identifier = node->left->identifier_name;
+    printf("%s = %d\n", identifier, result);
+    return result;
+  }
+
+  return 0;
+}
+
+int eval_program(struct ASTNode * root) {
+  struct ASTNode * node = root;
+
+  if (node == NULL) {
+    return 0;
+  }
+
+  if (node->kind == AST_PROGRAM) {
+    for (int c=0; c < node->statement_count; c++) {
+      int result = eval_statement(node->statements[c]);
+    }
+  }
+
+  return 0;
+}
+
 
 // parser function per grammer rule
 void parse_lparen(struct Parser *p) {
@@ -758,7 +822,8 @@ int main(void) {
   code="x=-(2;";
   code="x=+5-2;";
   code="x=+(5-2);";
-  code="x=-+5;";
+  code="x=-(1+2);";
+  code="x=(1+2)*3/(4*1);x=1;";
 
   printf("Input: %s\n", code);
   // Lexer
@@ -783,6 +848,8 @@ int main(void) {
   print_token(current_token(&p));
   printf("Print AST Tree:\n ");
   print_ast_tree(program, 0);
+
+  int result = eval_program(program);
 
   return 0;
 }
