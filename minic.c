@@ -30,6 +30,10 @@ enum ASTNodeType {
   AST_PROGRAM
 };
 
+enum TypeKind {
+  TYPE_INT
+};
+
 struct Token {
   enum TokenType type;
   char *start;
@@ -54,6 +58,7 @@ struct ASTNode {
 };
 
 struct Symbol {
+  enum TypeKind type;
   char *name;
   int value;
 };
@@ -91,7 +96,16 @@ char *node_type_name(enum ASTNodeType kind) {
   return "AST_UNKNOWN";
 }
 
-char *token_type_name(enum TokenType type) {
+const char *ident_type_name(enum TypeKind type) {
+  switch (type) {
+    case TYPE_INT:
+      return "int";
+    default:
+      return "unknown";
+  }
+}
+
+const char *token_type_name(enum TokenType type) {
   switch (type) {
     case TOKEN_NUMBER:
       return "NUMBER";
@@ -140,12 +154,26 @@ void print_token(struct Token t) {
   }
 }
 
-void print_ast_tree(struct ASTNode *root, int depth) {
-  struct ASTNode * t = root;
+void print_symbol_table(struct SymbolTable *table) {
+  struct SymbolTable * t = table;
+  if (t == NULL) {
+    return;
+  }
+
+  printf("Symbol Table\n");
+  for (int s = 0; s < t->count; s++) {
+    printf("[%d] name=%s, type=%s, value=%d\n",
+      s, t->symbols[s].name, ident_type_name(t->symbols[s].type), t->symbols[s].value);
+  }
+}
+
+void print_ast_tree(struct ASTNode *node, int depth) {
+  struct ASTNode * t = node;
 
   if (t == NULL) {
     return;
   }
+
   if (t->kind == AST_PROGRAM) {
     printf("%s\n", node_type_name(t->kind));
     for (int c=0; c < t->statement_count; c++) {
@@ -496,6 +524,7 @@ void store_symbol(struct SymbolTable *table, char *name, int value) {
   memset(new_symbol, '\0', symbol_len+1);
   strncpy(new_symbol, name, symbol_len);
 
+  table->symbols[table->count].type = TYPE_INT;
   table->symbols[table->count].name = new_symbol;
   table->symbols[table->count].value = value;
   table->count++;
@@ -960,6 +989,7 @@ int main(void) {
   struct SymbolTable table;
   initialize_symbol_table(&table);
   int result = eval_program(program, &table);
+  print_symbol_table(&table);
   if (result) {
     printf("SUCCESS: For input program, parse + evaluate / semantic check is okay\n");
   } else {
