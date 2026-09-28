@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #define BUFFER_SIZE 256
+#define MAX_SYMBOLS 100
 #define SPACES 2
 
 enum TokenType {
@@ -50,6 +51,16 @@ struct ASTNode {
   struct ASTNode *right;
   struct ASTNode * statements[BUFFER_SIZE];
   int    statement_count;
+};
+
+struct Symbol {
+  char *name;
+  int value;
+};
+
+struct SymbolTable {
+  struct Symbol symbols[MAX_SYMBOLS];
+  int count;
 };
 
 struct ASTNode * createNumberNode(int value);
@@ -432,8 +443,68 @@ void add_statement_to_program(struct ASTNode * program, struct ASTNode * stateme
   return;
 }
 
+// Symbol table
+void initialize_symbol_table(struct SymbolTable *table) {
+  table->count = 0;
+}
+
+struct Symbol * lookup_symbol(struct SymbolTable *table, char *name) {
+  if (table == NULL) {
+    printf("Symbol table pointer in null/invalid\n");
+    return NULL;
+  }
+
+  for (int i = 0; i < table->count; i++) {
+    struct Symbol *symbol = &table->symbols[i];
+    if (strcmp(symbol->name, name) == 0) {
+      return symbol;
+    }
+  }
+
+  return NULL;
+}
+
+// add symbol if symbol doesn't exists in the table
+// update value if symbol exists in the table
+void store_symbol(struct SymbolTable *table, char *name, int value) {
+  if (table == NULL) {
+    printf("Symbol table pointer in null/invalid\n");
+    return;
+  }
+
+  struct Symbol *symbol = NULL;
+  for (int i = 0; i < table->count; i++) {
+    symbol = &table->symbols[i];
+    if (strcmp(symbol->name, name) == 0) {
+      symbol->value = value;
+      return;
+    }
+  }
+
+  if (table->count >= MAX_SYMBOLS) {
+    printf("symbol table is full, no space left.\n");
+    return;
+  }
+
+  size_t symbol_len = strlen(name);
+  char *new_symbol = (char *)malloc(symbol_len+1);
+  if (new_symbol == NULL) {
+    printf("Couldn't allocate memory for new symbol\n");
+    return;
+  }
+
+  memset(new_symbol, '\0', symbol_len+1);
+  strncpy(new_symbol, name, symbol_len);
+
+  table->symbols[table->count].name = new_symbol;
+  table->symbols[table->count].value = value;
+  table->count++;
+
+  return;
+}
+
 // Evaluator
-int eval_expression(struct ASTNode * root) {
+int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_value) {
   struct ASTNode * node = root;
 
   if (node == NULL) {
@@ -441,50 +512,80 @@ int eval_expression(struct ASTNode * root) {
   }
 
   if (node->kind == AST_NUMBER) {
-    return node->number_value;
+    *out_value = node->number_value;
+    return 1;
   } else if (node->kind == AST_UNARY) {
-    int value = eval_expression(node->left);
-    if (node->operator_kind == TOKEN_MINUS) {
-      return -(value);
-    } else if (node->operator_kind == TOKEN_PLUS) {
-      return value;
+    int result;
+    int ret = eval_expression(node->left, table, &result);
+    if (ret == 0) {
+      return 0; // Failed case
     }
+    if (node->operator_kind == TOKEN_MINUS) {
+      *out_value = -(result);
+    } else if (node->operator_kind == TOKEN_PLUS) {
+      *out_value = result;
+    }
+    return 1;
   } else if (node->kind == AST_BINARY) {
-    int leftNum = eval_expression(node->left);
-    int rightNum = eval_expression(node->right);
+    int leftNum;
+    int ret = eval_expression(node->left, table, &leftNum);
+    if (ret == 0) {
+      return 0; // Failed case
+    }
+    int rightNum;
+    ret = eval_expression(node->right, table, &rightNum);
+    if (ret == 0) {
+      return 0; // Failed case
+    }
+
     if (node->operator_kind == TOKEN_PLUS) {
-      return leftNum + rightNum;
+      *out_value = leftNum + rightNum;
     } else if (node->operator_kind == TOKEN_MINUS) {
-      return leftNum - rightNum;
+      *out_value = leftNum - rightNum;
     } else if (node->operator_kind == TOKEN_STAR) {
-      return leftNum * rightNum;
+      *out_value = leftNum * rightNum;
     } else if (node->operator_kind == TOKEN_SLASH) {
-      return leftNum / rightNum;
+      *out_value = leftNum / rightNum;
+    }
+    return 1;
+  } else if (node->kind == AST_IDENTIFIER) {
+    struct Symbol *symbol = lookup_symbol(table, node->identifier_name);
+    if (symbol) {
+      *out_value = symbol->value;    
+      return 1;
+    } else {
+      printf("Identifier (%s) has not assigned any value\n", node->identifier_name);
     }
   } else {
     printf("Invalid AST_NODE\n");
   }
 
-  return -9999;
+  return 0;
 }
 
-int eval_statement(struct ASTNode * root) {
+int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
   struct ASTNode * node = root;
   if (node == NULL) {
     return 0;
   }
 
   if (node->kind == AST_ASSIGNMENT) {
-    int result = eval_expression(node->right);
     char *identifier = node->left->identifier_name;
-    printf("%s = %d\n", identifier, result);
-    return result;
+    int out_value;
+    int ret = eval_expression(node->right, table, &out_value);
+    if (ret == 0) {
+      return 0; // Failed expression evaluation
+    }
+    printf("%s = %d\n", identifier, out_value);
+    // call store_symbol
+    store_symbol(table, identifier, out_value);
+    return 1;
   }
 
   return 0;
 }
 
-int eval_program(struct ASTNode * root) {
+int eval_program(struct ASTNode * root, struct SymbolTable *table) {
   struct ASTNode * node = root;
 
   if (node == NULL) {
@@ -493,8 +594,12 @@ int eval_program(struct ASTNode * root) {
 
   if (node->kind == AST_PROGRAM) {
     for (int c=0; c < node->statement_count; c++) {
-      int result = eval_statement(node->statements[c]);
+      int result = eval_statement(node->statements[c], table);
+      if (result == 0) {
+        return 0;
+      }
     }
+    return 1;
   }
 
   return 0;
@@ -824,6 +929,9 @@ int main(void) {
   code="x=+(5-2);";
   code="x=-(1+2);";
   code="x=(1+2)*3/(4*1);x=1;";
+  code="x=1;";
+  code="y=x+2;";
+  code="y=6;a=1;b=2;c=a+b;d=a*b+y;";
 
   printf("Input: %s\n", code);
   // Lexer
@@ -849,7 +957,14 @@ int main(void) {
   printf("Print AST Tree:\n ");
   print_ast_tree(program, 0);
 
-  int result = eval_program(program);
+  struct SymbolTable table;
+  initialize_symbol_table(&table);
+  int result = eval_program(program, &table);
+  if (result) {
+    printf("SUCCESS: For input program, parse + evaluate / semantic check is okay\n");
+  } else {
+    printf("ERROR: For input program, parse + evaluate / semantic check failed\n");
+  }
 
   return 0;
 }
