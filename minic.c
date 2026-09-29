@@ -2,6 +2,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define SUCCESS 1
+#define FAIL    0
+
 #define BUFFER_SIZE 256
 #define MAX_SYMBOLS 100
 #define SPACES 2
@@ -537,34 +540,34 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
   struct ASTNode * node = root;
 
   if (node == NULL) {
-    return 0;
+    return FAIL;
   }
 
   if (node->kind == AST_NUMBER) {
     *out_value = node->number_value;
-    return 1;
+    return SUCCESS;
   } else if (node->kind == AST_UNARY) {
     int result;
     int ret = eval_expression(node->left, table, &result);
     if (ret == 0) {
-      return 0; // Failed case
+      return FAIL; // Failed case
     }
     if (node->operator_kind == TOKEN_MINUS) {
       *out_value = -(result);
     } else if (node->operator_kind == TOKEN_PLUS) {
       *out_value = result;
     }
-    return 1;
+    return SUCCESS;
   } else if (node->kind == AST_BINARY) {
     int leftNum;
     int ret = eval_expression(node->left, table, &leftNum);
     if (ret == 0) {
-      return 0; // Failed case
+      return FAIL; // Failed case
     }
     int rightNum;
     ret = eval_expression(node->right, table, &rightNum);
     if (ret == 0) {
-      return 0; // Failed case
+      return FAIL; // Failed case
     }
 
     if (node->operator_kind == TOKEN_PLUS) {
@@ -574,22 +577,26 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
     } else if (node->operator_kind == TOKEN_STAR) {
       *out_value = leftNum * rightNum;
     } else if (node->operator_kind == TOKEN_SLASH) {
+      if (rightNum == 0) {
+        printf("error: division by zero.\n");
+        return FAIL;
+      }
       *out_value = leftNum / rightNum;
     }
-    return 1;
+    return SUCCESS;
   } else if (node->kind == AST_IDENTIFIER) {
     struct Symbol *symbol = lookup_symbol(table, node->identifier_name);
     if (symbol) {
       *out_value = symbol->value;    
-      return 1;
+      return SUCCESS;
     } else {
-      printf("Identifier (%s) has not assigned any value\n", node->identifier_name);
+      printf("error: undefined identifier (%s)\n", node->identifier_name);
     }
   } else {
     printf("Invalid AST_NODE\n");
   }
 
-  return 0;
+  return FAIL;
 }
 
 int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
@@ -960,7 +967,8 @@ int main(void) {
   code="x=(1+2)*3/(4*1);x=1;";
   code="x=1;";
   code="y=x+2;";
-  code="y=6;a=1;b=2;c=a+b;d=a*b+y;";
+  code="y=6;a=1;b=2;c=a+b;d=a*b+z;";
+  code="x=0;y=2/x;";
 
   printf("Input: %s\n", code);
   // Lexer
@@ -991,9 +999,9 @@ int main(void) {
   int result = eval_program(program, &table);
   print_symbol_table(&table);
   if (result) {
-    printf("SUCCESS: For input program, parse + evaluate / semantic check is okay\n");
+    printf("SUCCESS: For input program, semantic check is okay\n");
   } else {
-    printf("ERROR: For input program, parse + evaluate / semantic check failed\n");
+    printf("ERROR: For input program, semantic check failed\n");
   }
 
   return 0;
