@@ -1,4 +1,4 @@
-/*
+/******************************************************************************
 miniC currently supports only declaration and assignment statements.
 miniC currently supports only the int type.
 Variables must be declared before they are used.
@@ -9,7 +9,23 @@ A declaration may optionally include an initializer expression.
 Any identifier used in an expression must be already declared. That covers
 - declaration initializer expressions
 - assignment expressions
-*/
+
+=============
+GRAMMER rules
+=============
+program -> statements*
+statement -> declaration | assignment | print_statement
+declaration -> INT IDENTIFIER ("=" expression)? SEMICOLON
+assignment -> IDENTIFIER EQUAL expression SEMICOLON
+print_statement -> PRINT LPAREN expression RPAREN SEMICOLON
+expression -> term ((PLUS | MINUS) term)*
+term -> unary ((STAR | SLASH) unary)*
+unary -> ('-' | '+') unary | primary
+primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
+
+******************************************************************************/
+
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
