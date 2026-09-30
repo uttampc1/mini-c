@@ -29,9 +29,9 @@ enum ASTNodeType {
   AST_NUMBER,
   AST_IDENTIFIER,
   AST_BINARY,
-  AST_ASSIGNMENT,
   AST_UNARY,
   AST_DECLARATION,
+  AST_ASSIGNMENT,
   AST_PROGRAM
 };
 
@@ -579,7 +579,7 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
   } else if (node->kind == AST_UNARY) {
     int result;
     int ret = eval_expression(node->left, table, &result);
-    if (ret == 0) {
+    if (ret == FAIL) {
       return FAIL; // Failed case
     }
     if (node->operator_kind == TOKEN_MINUS) {
@@ -591,12 +591,12 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
   } else if (node->kind == AST_BINARY) {
     int leftNum;
     int ret = eval_expression(node->left, table, &leftNum);
-    if (ret == 0) {
+    if (ret == FAIL) {
       return FAIL; // Failed case
     }
     int rightNum;
     ret = eval_expression(node->right, table, &rightNum);
-    if (ret == 0) {
+    if (ret == FAIL) {
       return FAIL; // Failed case
     }
 
@@ -646,7 +646,7 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     }
     if (node->right) {
       int ret = eval_expression(node->right, table, &out_value);
-      if (ret == 0) {
+      if (ret == FAIL) {
        return FAIL; // Failed expression evaluation
       }
     }
@@ -662,7 +662,7 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     } else {
       int out_value;
       int ret = eval_expression(node->right, table, &out_value);
-      if (ret == 0) {
+      if (ret == FAIL) {
        return FAIL; // Failed expression evaluation
       }
       printf("%s = %d\n", identifier, out_value);
@@ -679,13 +679,12 @@ int eval_program(struct ASTNode * root, struct SymbolTable *table) {
   struct ASTNode * node = root;
 
   if (node == NULL) {
-    return 0;
+    return FAIL;
   }
 
   if (node->kind == AST_PROGRAM) {
     for (int c=0; c < node->statement_count; c++) {
-      int result = eval_statement(node->statements[c], table);
-      if (result == 0) {
+      if(eval_statement(node->statements[c], table) == FAIL) {
         return FAIL;
       }
     }
@@ -695,6 +694,113 @@ int eval_program(struct ASTNode * root, struct SymbolTable *table) {
   return FAIL;
 }
 
+
+// semantic analysis pass over AST - NO COMPUTE
+// - redeclaration is not allowed
+// - assignment target must already be declared
+// - identifiers used in expression must already be declared
+int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
+  if (node == NULL) {
+    return FAIL;
+  }
+
+  if (node->kind == AST_NUMBER) {
+    return SUCCESS; // if number okay
+  }
+
+  if (node->kind == AST_IDENTIFIER) {
+    char *identifier = node->identifier_name;
+    struct Symbol *symbol = lookup_symbol(table, identifier);
+    if (symbol == NULL) {
+      printf("error: use of undeclared identifier %s\n", identifier);
+      return FAIL;
+    }
+    return SUCCESS; // if identifier exists in the symbol table. okay
+  }
+  if (node->kind == AST_BINARY) {
+    int ret = analyze_expression(node->left, table);
+    if (ret == FAIL) {
+      return FAIL; // Failed case
+    }
+    ret = analyze_expression(node->right, table);
+    if (ret == FAIL) {
+      return FAIL; // Failed case
+    }
+    return SUCCESS; // if left and right child semantically okay
+  }
+
+  return FAIL;
+}
+
+int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
+  if (node == NULL) {
+    return FAIL;
+  }
+  if (node->kind == AST_DECLARATION) {
+    if (node->left == NULL) {
+      printf("error: missing identifier\n");
+      return FAIL;
+    }
+
+    char *identifier = node->left->identifier_name;
+    struct Symbol *symbol = lookup_symbol(table, identifier);
+    if (symbol) {
+      printf("error: redeclaration of identifier %s\n", identifier);
+      return FAIL;
+    }
+    store_symbol(table, identifier, 0);
+    if (node->right) {
+      int ret = analyze_expression(node->right, table);
+      if (ret == FAIL) {
+        return FAIL;
+      }
+    }
+    return SUCCESS;
+  } 
+
+  if (node->kind == AST_ASSIGNMENT) {
+    if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
+      printf("error: assignment left side must be an identifier\n");
+      return FAIL;
+    }
+
+    char *identifier = node->left->identifier_name;
+    struct Symbol *symbol = lookup_symbol(table, identifier);
+    if (symbol == NULL) {
+      printf("error: assignment to undeclared identifier %s\n", identifier);
+      return FAIL;
+    }
+    if (node->right == NULL) {
+      printf("error: missing assignment value for identifier %s\n", identifier);
+      return FAIL;
+    }
+    int ret = analyze_expression(node->right, table);
+    if (ret == FAIL) {
+      return FAIL;
+    }
+
+    return SUCCESS;
+  }
+
+  return FAIL;
+}
+
+int analyze_program(struct ASTNode *node, struct SymbolTable *table) {
+  if (node == NULL) {
+    return FAIL;
+  }
+
+  if (node->kind == AST_PROGRAM) {
+    for (int c=0; c < node->statement_count; c++) {
+      if (analyze_statement(node->statements[c], table) == FAIL) { 
+        return FAIL;
+      }
+    }
+    return SUCCESS;
+  }
+
+  return FAIL;
+}
 
 // parser function per grammer rule
 void parse_lparen(struct Parser *p) {
@@ -1070,7 +1176,11 @@ int main(void) {
   code="x=0;y=2/x;";
   code="int x;";
   code="int x=5;";
+  code="int x; x=5;";
   code="int x; x=5+4; int y=2; int z=x+y;";
+  code="int x; int x;";
+  code="int x = 5; int y = x + 2;";
+  code="int z = x + y; int x = 1; int y = 1;";
 
   printf("Input: %s\n", code);
   // Lexer
@@ -1096,15 +1206,32 @@ int main(void) {
   printf("Print AST Tree:\n ");
   print_ast_tree(program, 0);
 
-  struct SymbolTable table;
-  initialize_symbol_table(&table);
-  int result = eval_program(program, &table);
-  print_symbol_table(&table);
-  if (result) {
-    printf("SUCCESS: For input program, semantic check is okay\n");
-  } else {
-    printf("ERROR: For input program, semantic check failed\n");
+  // Check sematics of the program before we evaluate it
+  printf("\n\n--> SEMANTIC CHECK PHASE: Start\n");
+  printf("Initialize symbol table for Semantic check\n");
+  struct SymbolTable semantic_table;
+  initialize_symbol_table(&semantic_table);
+
+  int result = analyze_program(program, &semantic_table);
+  print_symbol_table(&semantic_table);
+  if (result == 0) {
+    printf("--> SEMANTIC CHECK PHASE: FAILED\n");
+    exit(-1);
   }
+  printf("--> SEMANTIC CHECK PHASE: PASS\n");
+
+  // Program is semantically okay so go ahead and evaluate it
+  printf("\n\n--> EVALUATION CHECK PHASE: Start\n");
+  printf("Initialize symbol table for Evaluation check\n");
+  struct SymbolTable runtime_table;
+  initialize_symbol_table(&runtime_table);
+  result = eval_program(program, &runtime_table);
+  print_symbol_table(&runtime_table);
+  if (result == 0) {
+    printf("--> EVALUATION CHECK PHASE: FAILED\n");
+    exit(-1);
+  }
+  printf("--> EVALUATION CHECK PHASE: PASS\n");
 
   return 0;
 }
