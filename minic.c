@@ -48,7 +48,8 @@ enum ASTNodeType {
 };
 
 enum TypeKind {
-  TYPE_INT
+  TYPE_INT,
+  TYPE_ERROR
 };
 
 struct Token {
@@ -707,6 +708,44 @@ int eval_program(struct ASTNode * root, struct SymbolTable *table) {
 }
 
 
+// type check over AST - NO COMPUTE
+enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table) {
+  if (node == NULL) {
+    return TYPE_ERROR;
+  }
+
+  if (node->kind == AST_NUMBER) {
+    return TYPE_INT;
+  } else if (node->kind == AST_IDENTIFIER) {
+    char *identifier = node->identifier_name;
+    struct Symbol *symbol = lookup_symbol(table, identifier);
+    if (symbol == NULL) {
+      return TYPE_ERROR;
+    }
+    return symbol->type;
+  } else if (node->kind == AST_BINARY) {
+    enum TypeKind leftType = analyze_expression_type(node->left, table);
+    if (leftType == TYPE_ERROR) {
+      printf("error: left expression has unsupported type\n");
+      return TYPE_ERROR;
+    }
+    enum TypeKind rightType = analyze_expression_type(node->right, table);
+    if (rightType == TYPE_ERROR) {
+      printf("error: right expression has unsupported type\n");
+      return TYPE_ERROR;
+    }
+    if (leftType != rightType) {
+      printf("error: binary expression operands have different Types\n");
+      return TYPE_ERROR;
+    }
+
+    return leftType;
+  }
+
+  printf("error: unsupported expression for type check analysis: %s\n", node_type_name(node->kind));
+  return TYPE_ERROR;
+}
+
 // semantic analysis pass over AST - NO COMPUTE
 // - redeclaration is not allowed
 // - assignment target must already be declared
@@ -748,10 +787,20 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
   }
 
   if (node->kind == AST_DECLARATION) {
-    if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: %s declaration must have an identifier\n", token_type_name(node->operator_kind));
+    enum TypeKind declared_type = node->operator_kind; 
+
+    if (declared_type != TYPE_INT) {
+      printf("error: unsupported declaration type %s\n",
+        token_type_name(node->operator_kind));
       return FAIL;
     }
+
+    if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
+      printf("error: %s declaration must have an identifier\n",
+        token_type_name(node->operator_kind));
+      return FAIL;
+    }
+
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol(table, identifier);
     if (symbol) {
@@ -759,7 +808,19 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
     store_symbol(table, identifier, 0);
+
     if (node->right) {
+      enum TypeKind expression_type = analyze_expression_type(node->right, table);
+      if (expression_type == TYPE_ERROR) {
+        printf("error: RHS expression has unsupported type.\n");
+        return FAIL;
+      }
+
+      if (declared_type != expression_type) {
+        printf("error: assignment type mismatch for declared identifier %s\n", identifier);
+        return FAIL;
+      }
+
       int ret = analyze_expression(node->right, table);
       if (ret == FAIL) {
         return FAIL;
@@ -778,10 +839,23 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       printf("error: assignment to undeclared identifier %s\n", identifier);
       return FAIL;
     }
+
     if (node->right == NULL) {
       printf("error: missing assignment value for identifier %s\n", identifier);
       return FAIL;
     }
+
+    enum TypeKind expression_type = analyze_expression_type(node->right, table);
+    if (expression_type == TYPE_ERROR) {
+      printf("error: RHS expression has unsupported type.\n");
+      return FAIL;
+    }
+
+    if (symbol->type != expression_type) {
+      printf("error: assignment type mismatch for identifier %s\n", identifier);
+      return FAIL;
+    }
+
     int ret = analyze_expression(node->right, table);
     if (ret == FAIL) {
       return FAIL;
