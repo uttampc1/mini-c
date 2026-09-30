@@ -1,3 +1,15 @@
+/*
+miniC currently supports only declaration and assignment statements.
+miniC currently supports only the int type.
+Variables must be declared before they are used.
+A variable cannot be redeclared.
+The left-hand side of an assignment must be an identifier.
+The identifier being assigned to must be already declared.
+A declaration may optionally include an initializer expression.
+Any identifier used in an expression must be already declared. That covers
+- declaration initializer expressions
+- assignment expressions
+*/
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -191,7 +203,7 @@ void print_ast_tree(struct ASTNode *node, int depth) {
     }
     return;
   } else if (t->kind == AST_DECLARATION) {
-    printf("%*s %s\n", SPACES*depth, " ", node_type_name(t->kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind));
   } else if (t->kind == AST_ASSIGNMENT) {
     printf("%*s %s\n", SPACES*depth, " ", node_type_name(t->kind));
   } else if (t->kind == AST_NUMBER) {
@@ -706,9 +718,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
 
   if (node->kind == AST_NUMBER) {
     return SUCCESS; // if number okay
-  }
-
-  if (node->kind == AST_IDENTIFIER) {
+  } else if (node->kind == AST_IDENTIFIER) {
     char *identifier = node->identifier_name;
     struct Symbol *symbol = lookup_symbol(table, identifier);
     if (symbol == NULL) {
@@ -716,8 +726,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
     return SUCCESS; // if identifier exists in the symbol table. okay
-  }
-  if (node->kind == AST_BINARY) {
+  } else if (node->kind == AST_BINARY) {
     int ret = analyze_expression(node->left, table);
     if (ret == FAIL) {
       return FAIL; // Failed case
@@ -729,6 +738,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     return SUCCESS; // if left and right child semantically okay
   }
 
+  printf("error: unsupported expression ASTNode: %s\n", node_type_name(node->kind));
   return FAIL;
 }
 
@@ -736,12 +746,12 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
   if (node == NULL) {
     return FAIL;
   }
+
   if (node->kind == AST_DECLARATION) {
-    if (node->left == NULL) {
-      printf("error: missing identifier\n");
+    if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
+      printf("error: %s declaration must have an identifier\n", token_type_name(node->operator_kind));
       return FAIL;
     }
-
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol(table, identifier);
     if (symbol) {
@@ -756,9 +766,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       }
     }
     return SUCCESS;
-  } 
-
-  if (node->kind == AST_ASSIGNMENT) {
+  } else  if (node->kind == AST_ASSIGNMENT) {
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
       printf("error: assignment left side must be an identifier\n");
       return FAIL;
@@ -782,6 +790,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     return SUCCESS;
   }
 
+  printf("error: unsupported statement ASTNode: %s\n", node_type_name(node->kind));
   return FAIL;
 }
 
@@ -1179,8 +1188,9 @@ int main(void) {
   code="int x; x=5;";
   code="int x; x=5+4; int y=2; int z=x+y;";
   code="int x; int x;";
-  code="int x = 5; int y = x + 2;";
   code="int z = x + y; int x = 1; int y = 1;";
+  code="int x = 5; int y = x + 2;";
+  code="int;";
 
   printf("Input: %s\n", code);
   // Lexer
