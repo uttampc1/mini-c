@@ -20,6 +20,7 @@ enum TokenType {
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_SEMICOLON,
+  TOKEN_INT,
   TOKEN_UNKNOWN,
   TOKEN_EOF
 };
@@ -30,6 +31,7 @@ enum ASTNodeType {
   AST_BINARY,
   AST_ASSIGNMENT,
   AST_UNARY,
+  AST_DECLARATION,
   AST_PROGRAM
 };
 
@@ -75,6 +77,7 @@ struct ASTNode * createNumberNode(int value);
 struct ASTNode * createIdentifierNode(char *name);
 struct ASTNode * createBinaryNode(enum TokenType type, struct ASTNode * leftNode, struct ASTNode * rightNode);
 struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode);
+struct ASTNode * createDeclarationNode(enum TokenType type, struct ASTNode *ident, struct ASTNode *valueNode);
 struct ASTNode * parse_expression(struct Parser *p);
 struct ASTNode * parse_primary(struct Parser *p);
 struct ASTNode * parse_term(struct Parser *p);
@@ -92,6 +95,8 @@ char *node_type_name(enum ASTNodeType kind) {
       return "ASSIGNMENT";
     case AST_UNARY:
       return "UNARY";
+    case AST_DECLARATION:
+      return "DECL";
     case AST_PROGRAM:
       return "PROGRAM";
   }
@@ -114,6 +119,8 @@ const char *token_type_name(enum TokenType type) {
       return "NUMBER";
     case TOKEN_IDENTIFIER:
       return "IDENTIFIER";
+    case TOKEN_INT:
+      return "INT";
     case TOKEN_PLUS:
       return "+";
     case TOKEN_STAR:
@@ -183,6 +190,8 @@ void print_ast_tree(struct ASTNode *node, int depth) {
       print_ast_tree(t->statements[c], depth+1);
     }
     return;
+  } else if (t->kind == AST_DECLARATION) {
+    printf("%*s %s\n", SPACES*depth, " ", node_type_name(t->kind));
   } else if (t->kind == AST_ASSIGNMENT) {
     printf("%*s %s\n", SPACES*depth, " ", node_type_name(t->kind));
   } else if (t->kind == AST_NUMBER) {
@@ -312,7 +321,11 @@ void tokenize(char *code, struct Token tokens[], int *token_count) {
     } else if (is_alpha(code[idx])) {
       int start = idx;
       idx = scan_identifier(code, idx);
-      add_token(tokens, token_count, TOKEN_IDENTIFIER, code + start, idx - start);
+      if (strncmp(code+start, "int", idx-start) == 0) {
+        add_token(tokens, token_count, TOKEN_INT, code + start, idx - start);
+      } else {
+        add_token(tokens, token_count, TOKEN_IDENTIFIER, code + start, idx - start);
+      }
     } else {
       add_token(tokens, token_count, TOKEN_UNKNOWN, code + idx, 1);
       idx++;
@@ -399,6 +412,23 @@ struct ASTNode * createIdentifierNode(char *name) {
     node->identifier_name[bytesToCopy] = '\0';
     node->operator_kind = TOKEN_EOF;
   }
+  return node;
+}
+
+struct ASTNode * createDeclarationNode(enum TokenType type, struct ASTNode *ident, struct ASTNode * valueNode) {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("Couldn't allocate memory for identifier ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_DECLARATION;
+  node->number_value = -99999;
+  node->left = ident;
+  node->right = valueNode;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = type;
   return node;
 }
 
@@ -587,6 +617,7 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
   } else if (node->kind == AST_IDENTIFIER) {
     struct Symbol *symbol = lookup_symbol(table, node->identifier_name);
     if (symbol) {
+      printf("Symbol(%s) found with value(%d)\n", symbol->name, symbol->value);
       *out_value = symbol->value;    
       return SUCCESS;
     } else {
@@ -602,23 +633,46 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
 int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
   struct ASTNode * node = root;
   if (node == NULL) {
-    return 0;
+    return FAIL;
   }
 
-  if (node->kind == AST_ASSIGNMENT) {
+  if (node->kind == AST_DECLARATION) {
     char *identifier = node->left->identifier_name;
-    int out_value;
-    int ret = eval_expression(node->right, table, &out_value);
-    if (ret == 0) {
-      return 0; // Failed expression evaluation
+    int out_value = 0;
+    struct Symbol *symbol = lookup_symbol(table, identifier);
+    if (symbol) {
+      printf("error: redeclaration of identifier %s\n", identifier);
+      return FAIL;
     }
-    printf("%s = %d\n", identifier, out_value);
-    // call store_symbol
+    if (node->right) {
+      int ret = eval_expression(node->right, table, &out_value);
+      if (ret == 0) {
+       return FAIL; // Failed expression evaluation
+      }
+    }
+    printf("declare %s with initial value %d\n", identifier, out_value);
     store_symbol(table, identifier, out_value);
-    return 1;
+    return SUCCESS;
+  } else if (node->kind == AST_ASSIGNMENT) {
+    char *identifier = node->left->identifier_name;
+    struct Symbol *symbol = lookup_symbol(table, identifier);
+    if (symbol == NULL) {
+      printf("error: assignment to undeclared identifier %s\n", identifier);
+      return FAIL;
+    } else {
+      int out_value;
+      int ret = eval_expression(node->right, table, &out_value);
+      if (ret == 0) {
+       return FAIL; // Failed expression evaluation
+      }
+      printf("%s = %d\n", identifier, out_value);
+      // call store_symbol
+      store_symbol(table, identifier, out_value);
+    }
+    return SUCCESS;
   }
 
-  return 0;
+  return FAIL;
 }
 
 int eval_program(struct ASTNode * root, struct SymbolTable *table) {
@@ -632,13 +686,13 @@ int eval_program(struct ASTNode * root, struct SymbolTable *table) {
     for (int c=0; c < node->statement_count; c++) {
       int result = eval_statement(node->statements[c], table);
       if (result == 0) {
-        return 0;
+        return FAIL;
       }
     }
-    return 1;
+    return SUCCESS;
   }
 
-  return 0;
+  return FAIL;
 }
 
 
@@ -894,12 +948,57 @@ struct ASTNode * parse_assignment(struct Parser *p) {
   return node;
 }
 
-// statement -> assignment
+// declaration -> INT IDENTIFIER SEMICOLON
+//              | INT IDENTIFIER EQUAL expression SEMICOLON
+// OR
+// declaration -> INT IDENTIFIER ("=" expression)? SEMICOLON -- compact grammer version
+struct ASTNode * parse_declaration(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_INT);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  struct ASTNode * ident = parse_identifier(p);
+  if ( ident == NULL ) {
+    p->has_error = 1;
+    return NULL;
+  }
+
+  struct ASTNode * rightValue = NULL;
+  if (is_current_token(p, TOKEN_EQUAL)) {
+    expect_token(p, TOKEN_EQUAL);
+    rightValue = parse_expression(p);
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  struct ASTNode * node = createDeclarationNode(TOKEN_INT, ident, rightValue);
+  if (node == NULL) {
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
+// statement -> declaration | assignment
 struct ASTNode * parse_statement(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
-  struct ASTNode * node = parse_assignment(p);
+
+  struct ASTNode * node = NULL;
+  if (is_current_token(p, TOKEN_INT)) {
+    node = parse_declaration(p);
+  } else {
+    node = parse_assignment(p);
+  }
   return node;
 }
 
@@ -969,6 +1068,9 @@ int main(void) {
   code="y=x+2;";
   code="y=6;a=1;b=2;c=a+b;d=a*b+z;";
   code="x=0;y=2/x;";
+  code="int x;";
+  code="int x=5;";
+  code="int x; x=5+4; int y=2; int z=x+y;";
 
   printf("Input: %s\n", code);
   // Lexer
