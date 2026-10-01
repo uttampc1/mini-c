@@ -77,6 +77,8 @@ enum ASTNodeKind {
 
 enum TypeKind {
   TYPE_INT,
+  TYPE_UNKNOWN,
+  TYPE_UNUSED,
   TYPE_ERROR
 };
 
@@ -93,10 +95,12 @@ struct Parser {
 };
 
 struct ASTNode {
-  enum ASTNodeKind kind;
-  int  number_value;
-  char identifier_name[BUFFER_SIZE];
-  enum TokenKind operator_kind;
+  enum   ASTNodeKind kind;
+  int    number_value;
+  char   identifier_name[BUFFER_SIZE];
+  enum   TokenKind operator_kind;
+  enum   TypeKind  type_kind;
+  enum   TypeKind  declared_variable_type;
   struct ASTNode *left;
   struct ASTNode *right;
   struct ASTNode * statements[BUFFER_SIZE];
@@ -114,11 +118,16 @@ struct SymbolTable {
   int count;
 };
 
+
+struct ASTNode * createUnaryNode(enum TokenKind type);
 struct ASTNode * createNumberNode(int value);
 struct ASTNode * createIdentifierNode(char *name);
 struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode, struct ASTNode * rightNode);
-struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode);
 struct ASTNode * createDeclarationNode(enum TokenKind type, struct ASTNode *ident, struct ASTNode *valueNode);
+struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode);
+struct ASTNode * createPrintNode(struct ASTNode * expr);
+struct ASTNode * createProgramNode();
+
 struct ASTNode * parse_expression(struct Parser *p);
 struct ASTNode * parse_primary(struct Parser *p);
 struct ASTNode * parse_term(struct Parser *p);
@@ -154,12 +163,16 @@ char *node_type_name(enum ASTNodeKind kind) {
   return "AST_UNKNOWN";
 }
 
-const char *ident_type_name(enum TypeKind type) {
+const char *typekind_type_name(enum TypeKind type) {
   switch (type) {
     case TYPE_INT:
-      return "int";
+      return "INT";
+    case TYPE_UNKNOWN:
+      return "UNKNOWN";
+    case TYPE_UNUSED:
+      return "UNUSED";
     default:
-      return "unknown";
+      return "TYPE_ERROR";
   }
 }
 
@@ -233,7 +246,7 @@ void print_symbol_table(struct SymbolTable *table) {
   printf("Symbol Table\n");
   for (int s = 0; s < t->count; s++) {
     printf("[%d] name=%s, type=%s, value=%d\n",
-      s, t->symbols[s].name, ident_type_name(t->symbols[s].type), t->symbols[s].value);
+      s, t->symbols[s].name, typekind_type_name(t->symbols[s].type), t->symbols[s].value);
   }
 }
 
@@ -251,19 +264,19 @@ void print_ast_tree(struct ASTNode *node, int depth) {
     }
     return;
   } else if (t->kind == AST_DECLARATION) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_PRINT) {
-    printf("%*s %s\n", SPACES*depth, " ", node_type_name(t->kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_ASSIGNMENT) {
-    printf("%*s %s\n", SPACES*depth, " ", node_type_name(t->kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_NUMBER) {
-    printf("%*s %s %d\n", SPACES*depth, " ", node_type_name(t->kind), t->number_value);
+    printf("%*s %s %d %s\n", SPACES*depth, " ", node_type_name(t->kind), t->number_value, typekind_type_name(t->type_kind));
   } else if (t->kind == AST_IDENTIFIER) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), t->identifier_name);
+    printf("%*s %s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), t->identifier_name, typekind_type_name(t->type_kind));
   } else if (t->kind == AST_BINARY) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind));
+    printf("%*s %s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_UNARY) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else {
     printf("%*s UNKNOWN AST NODE\n", SPACES*depth, " ");
   }
@@ -451,7 +464,7 @@ void expect_token(struct Parser *p, enum TokenKind type) {
     advance_token(p);
   } else {
     p->has_error = 1;
-    printf("Didn't find the expected token: %s\n", token_type_name(type));
+    printf("error: expected %s token, found %s token instead\n", token_type_name(type), token_type_name(t.type));
   }
   return;
 }
@@ -460,15 +473,20 @@ struct ASTNode * createUnaryNode(enum TokenKind type) {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for unary ASTNode\n");
-  } else {
-    node->kind = AST_UNARY;
-    node->number_value = -9999;
-    node->left = NULL;
-    node->right = NULL;
-    node->identifier_name[0] = '\0';
-    node->operator_kind = type;
+    printf("error: couldn't allocate memory for unary ASTNode\n");
+    return NULL;
   }
+
+  node->kind = AST_UNARY;
+  node->number_value = -9999;
+  node->left = NULL;
+  node->right = NULL;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = type;
+  node->type_kind = TYPE_UNKNOWN;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
   return node;
 }
 
@@ -476,15 +494,20 @@ struct ASTNode * createNumberNode(int value) {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for number ASTNode\n");
-  } else {
-    node->kind = AST_NUMBER;
-    node->number_value = value;
-    node->left = NULL;
-    node->right = NULL;
-    node->identifier_name[0] = '\0';
-    node->operator_kind = TOKEN_EOF;
+    printf("error: couldn't allocate memory for number ASTNode\n");
+    return NULL;
   }
+
+  node->kind = AST_NUMBER;
+  node->number_value = value;
+  node->left = NULL;
+  node->right = NULL;
+  node->identifier_name[0] = '\0';
+  node->type_kind = TYPE_INT;
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
   return node;
 }
 
@@ -492,18 +515,44 @@ struct ASTNode * createIdentifierNode(char *name) {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for identifier ASTNode\n");
-  } else {
-    node->kind = AST_IDENTIFIER;
-    node->number_value = -99999;
-    node->left = NULL;
-    node->right = NULL;
-    size_t len = strlen(name);
-    int bytesToCopy = (len >= BUFFER_SIZE) ? BUFFER_SIZE-1 : len;
-    strncpy(node->identifier_name, name, bytesToCopy);
-    node->identifier_name[bytesToCopy] = '\0';
-    node->operator_kind = TOKEN_EOF;
+    printf("error: couldn't allocate memory for identifier ASTNode\n");
+    return NULL;
   }
+
+  node->kind = AST_IDENTIFIER;
+  node->number_value = -99999;
+  node->left = NULL;
+  node->right = NULL;
+  size_t len = strlen(name);
+  int bytesToCopy = (len >= BUFFER_SIZE) ? BUFFER_SIZE-1 : len;
+  strncpy(node->identifier_name, name, bytesToCopy);
+  node->identifier_name[bytesToCopy] = '\0';
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->type_kind = TYPE_UNKNOWN;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
+  return node;
+}
+
+struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode, struct ASTNode * rightNode) {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("error: couldn't allocate memory for binary ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_BINARY;
+  node->number_value = -99999;
+  node->left = leftNode;
+  node->right = rightNode;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = type;
+  node->type_kind = TYPE_UNKNOWN;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
   return node;
 }
 
@@ -511,7 +560,7 @@ struct ASTNode * createDeclarationNode(enum TokenKind type, struct ASTNode *iden
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for identifier ASTNode\n");
+    printf("error: couldn't allocate memory for identifier ASTNode\n");
     return NULL;
   }
 
@@ -520,23 +569,11 @@ struct ASTNode * createDeclarationNode(enum TokenKind type, struct ASTNode *iden
   node->left = ident;
   node->right = valueNode;
   node->identifier_name[0] = '\0';
-  node->operator_kind = type;
-  return node;
-}
-
-struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode, struct ASTNode * rightNode) {
-  struct ASTNode * node = NULL;
-  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
-  if (node == NULL) {
-    printf("Couldn't allocate memory for binary ASTNode\n");
-  } else {
-    node->kind = AST_BINARY;
-    node->number_value = -99999;
-    node->left = leftNode;
-    node->right = rightNode;
-    node->identifier_name[0] = '\0';
-    node->operator_kind = type;
-  }
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->type_kind = TYPE_UNUSED;
+  node->declared_variable_type = token_to_typekind(type);
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
   return node;
 }
 
@@ -544,15 +581,20 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for assignment ASTNode\n");
-  } else {
-    node->kind = AST_ASSIGNMENT;
-    node->number_value = -9999;
-    node->left = leftNode;
-    node->right = rightNode;
-    node->identifier_name[0] = '\0';
-    node->operator_kind = TOKEN_EOF;
+    printf("error: couldn't allocate memory for assignment ASTNode\n");
+    return NULL;
   }
+
+  node->kind = AST_ASSIGNMENT;
+  node->number_value = -9999;
+  node->left = leftNode;
+  node->right = rightNode;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->type_kind = TYPE_UNUSED;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
   return node;
 }
 
@@ -561,16 +603,20 @@ struct ASTNode * createPrintNode(struct ASTNode * expr) {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for print ASTNode\n");
-  } else {
-    node->kind = AST_PRINT;
-    node->number_value = -9999;
-    node->left = expr;
-    node->right = NULL;
-    node->identifier_name[0] = '\0';
-    node->operator_kind = TOKEN_EOF;
+    printf("error: couldn't allocate memory for print ASTNode\n");
+    return NULL;
   }
 
+  node->kind = AST_PRINT;
+  node->number_value = -9999;
+  node->left = expr;
+  node->right = NULL;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->type_kind = TYPE_UNUSED;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
   return node;
 }
 
@@ -579,19 +625,20 @@ struct ASTNode * createProgramNode() {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
   if (node == NULL) {
-    printf("Couldn't allocate memory for program ASTNode\n");
-  } else {
-    node->kind = AST_PROGRAM;
-    node->number_value = -9999;
-    node->left = NULL;
-    node->right = NULL;
-    node->identifier_name[0] = '\0';
-    node->operator_kind = TOKEN_EOF;
-    node->statements[0] = NULL;
-    memset(node->statements, 0, sizeof(node->statements));
-    node->statement_count = 0;
+    printf("error: couldn't allocate memory for program ASTNode\n");
+    return NULL;
   }
 
+  node->kind = AST_PROGRAM;
+  node->number_value = -9999;
+  node->left = NULL;
+  node->right = NULL;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->type_kind = TYPE_UNUSED;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
   return node;
 }
 
@@ -637,7 +684,7 @@ struct Symbol * lookup_symbol(struct SymbolTable *table, char *name) {
 
 // add symbol if symbol doesn't exists in the table
 // update value if symbol exists in the table
-void store_symbol(struct SymbolTable *table, char *name, int value) {
+void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, int value) {
   if (table == NULL) {
     printf("Symbol table pointer in null/invalid\n");
     return;
@@ -660,14 +707,14 @@ void store_symbol(struct SymbolTable *table, char *name, int value) {
   size_t symbol_len = strlen(name);
   char *new_symbol = (char *)malloc(symbol_len+1);
   if (new_symbol == NULL) {
-    printf("Couldn't allocate memory for new symbol\n");
+    printf("error: couldn't allocate memory for new symbol\n");
     return;
   }
 
   memset(new_symbol, '\0', symbol_len+1);
   strncpy(new_symbol, name, symbol_len);
 
-  table->symbols[table->count].type = TYPE_INT;
+  table->symbols[table->count].type = type;
   table->symbols[table->count].name = new_symbol;
   table->symbols[table->count].value = value;
   table->count++;
@@ -690,24 +737,27 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
     int result;
     int ret = eval_expression(node->left, table, &result);
     if (ret == FAIL) {
-      return FAIL; // Failed case
+      return FAIL;
     }
     if (node->operator_kind == TOKEN_MINUS) {
       *out_value = -(result);
     } else if (node->operator_kind == TOKEN_PLUS) {
       *out_value = result;
+    } else {
+      printf("error: unsupported unary operator\n");
+      return FAIL;
     }
     return SUCCESS;
   } else if (node->kind == AST_BINARY) {
     int leftNum;
     int ret = eval_expression(node->left, table, &leftNum);
     if (ret == FAIL) {
-      return FAIL; // Failed case
+      return FAIL;
     }
     int rightNum;
     ret = eval_expression(node->right, table, &rightNum);
     if (ret == FAIL) {
-      return FAIL; // Failed case
+      return FAIL;
     }
 
     if (node->operator_kind == TOKEN_PLUS) {
@@ -746,6 +796,9 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
       } else {
         *out_value = 0;
       }
+    } else {
+      printf("error: unsupported binary operator\n");
+      return FAIL;
     }
     return SUCCESS;
   } else if (node->kind == AST_IDENTIFIER) {
@@ -771,6 +824,12 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
   }
 
   if (node->kind == AST_DECLARATION) {
+    enum TypeKind declared_variable_type = node->declared_variable_type;
+    if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
+      printf("error: declaration must have an identifier.\n");
+      return FAIL;
+    }
+
     char *identifier = node->left->identifier_name;
     int out_value = 0;
     struct Symbol *symbol = lookup_symbol(table, identifier);
@@ -781,13 +840,15 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     if (node->right) {
       int ret = eval_expression(node->right, table, &out_value);
       if (ret == FAIL) {
-       return FAIL; // Failed expression evaluation
+       return FAIL;
       }
     }
     printf("declare %s with initial value %d\n", identifier, out_value);
-    store_symbol(table, identifier, out_value);
+    store_symbol(table, declared_variable_type, identifier, out_value);
     return SUCCESS;
   } else if (node->kind == AST_ASSIGNMENT) {
+    enum TypeKind type_kind = node->type_kind;
+
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol(table, identifier);
     if (symbol == NULL) {
@@ -797,11 +858,10 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
       int out_value;
       int ret = eval_expression(node->right, table, &out_value);
       if (ret == FAIL) {
-       return FAIL; // Failed expression evaluation
+       return FAIL;
       }
       printf("%s = %d\n", identifier, out_value);
-      // call store_symbol
-      store_symbol(table, identifier, out_value);
+      store_symbol(table, type_kind, identifier, out_value);
     }
     return SUCCESS;
   } else if (node->kind == AST_PRINT) {
@@ -823,23 +883,21 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
   return FAIL;
 }
 
-int eval_program(struct ASTNode * root, struct SymbolTable *table) {
-  struct ASTNode * node = root;
-
+int eval_program(struct ASTNode * node, struct SymbolTable *table) {
   if (node == NULL) {
     return FAIL;
   }
 
-  if (node->kind == AST_PROGRAM) {
-    for (int c=0; c < node->statement_count; c++) {
-      if(eval_statement(node->statements[c], table) == FAIL) {
-        return FAIL;
-      }
-    }
-    return SUCCESS;
+  if (node->kind != AST_PROGRAM) {
+    return FAIL;
   }
 
-  return FAIL;
+  for (int c=0; c < node->statement_count; c++) {
+    if(eval_statement(node->statements[c], table) == FAIL) {
+      return FAIL;
+    }
+  }
+  return SUCCESS;
 }
 
 // type check over AST - NO COMPUTE
@@ -903,7 +961,11 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
   }
 
   if (node->kind == AST_NUMBER) {
-    return SUCCESS; // if number okay
+    if (node->type_kind != TYPE_INT) {
+      // currently we are setting this node's type_kind to TYPE_INT if missed somehow
+      node->type_kind = TYPE_INT;
+    }
+    return SUCCESS;
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
       printf("error: unary expression missing operand\n");
@@ -918,25 +980,80 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     if (ret == FAIL) {
       return FAIL;
     }
+
+    // check the type of left child and set the unary node's own type_kind
+    enum TypeKind child_type = analyze_expression_type(node->left, table);
+    if (child_type == TYPE_ERROR) {
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+    if (child_type == TYPE_INT) {
+      node->type_kind = TYPE_INT;
+    } else {
+      printf("error: currently minic only support INT types for operands\n");
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
     return SUCCESS;
   } else if (node->kind == AST_IDENTIFIER) {
     char *identifier = node->identifier_name;
     struct Symbol *symbol = lookup_symbol(table, identifier);
     if (symbol == NULL) {
+      node->type_kind = TYPE_ERROR;
       printf("error: use of undeclared identifier %s\n", identifier);
       return FAIL;
     }
-    return SUCCESS; // if identifier exists in the symbol table. okay
+    if (symbol->type == TYPE_ERROR || symbol->type == TYPE_UNKNOWN || symbol->type == TYPE_UNUSED) {
+      printf("error: identifier has not type information %s\n", identifier);
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+    node->type_kind = symbol->type;
+    return SUCCESS;
   } else if (node->kind == AST_BINARY) {
+    if (node->operator_kind != TOKEN_PLUS && node->operator_kind != TOKEN_MINUS &&
+        node->operator_kind != TOKEN_STAR && node->operator_kind != TOKEN_SLASH &&
+        node->operator_kind != TOKEN_LESS && node->operator_kind != TOKEN_GREATER &&
+        node->operator_kind != TOKEN_EQUAL_EQUAL && node->operator_kind != TOKEN_BANG_EQUAL) {
+      printf("error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
     int ret = analyze_expression(node->left, table);
     if (ret == FAIL) {
-      return FAIL; // Failed case
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
     }
     ret = analyze_expression(node->right, table);
     if (ret == FAIL) {
-      return FAIL; // Failed case
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
     }
-    return SUCCESS; // if left and right child semantically okay
+
+    enum TypeKind left_child_type = analyze_expression_type(node->left, table);
+    enum TypeKind right_child_type = analyze_expression_type(node->right, table);
+
+    if (left_child_type == TYPE_ERROR || right_child_type == TYPE_ERROR) {
+      printf("error: unsupported types found. Left has: %s and right: %s types \n",
+        typekind_type_name(left_child_type), typekind_type_name(right_child_type));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    if (left_child_type != right_child_type) {
+      node->type_kind = TYPE_ERROR;
+      printf("error: cannot determine type of binary expression.\n");
+      return FAIL;
+    }
+
+    if (left_child_type != TYPE_INT) {
+      printf("error: currently minic only support INT types for binary operations\n");
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+    node->type_kind = left_child_type;
+    return SUCCESS;
   }
 
   printf("error: unsupported expression ASTNode: %s\n", node_type_name(node->kind));
@@ -949,17 +1066,25 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
   }
 
   if (node->kind == AST_DECLARATION) {
-    enum TypeKind declared_type = token_to_typekind(node->operator_kind);
+    enum TypeKind declared_variable_type = node->declared_variable_type;
+    if (declared_variable_type == TYPE_ERROR ||
+      declared_variable_type == TYPE_UNKNOWN ||
+      declared_variable_type == TYPE_UNUSED) {
+      printf("error: unsupported declaration type %s found.\n", typekind_type_name(declared_variable_type));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
 
-    if (declared_type == TYPE_ERROR) {
-      printf("error: unsupported declaration type %s\n",
-        token_type_name(node->operator_kind));
+    if (declared_variable_type != TYPE_INT) {
+      printf("error: currently minic only support INT types for declaration statement. Found %s type.\n",
+        typekind_type_name(declared_variable_type));
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: %s declaration must have an identifier\n",
-        token_type_name(node->operator_kind));
+      printf("error: declaration must have an identifier\n");
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
@@ -967,31 +1092,41 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     struct Symbol *symbol = lookup_symbol(table, identifier);
     if (symbol) {
       printf("error: redeclaration of identifier %s\n", identifier);
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
-    store_symbol(table, identifier, 0);
 
     if (node->right) {
-      enum TypeKind expression_type = analyze_expression_type(node->right, table);
-      if (expression_type == TYPE_ERROR) {
-        printf("error: RHS expression has unsupported type.\n");
-        return FAIL;
-      }
-
-      if (declared_type != expression_type) {
-        printf("error: intializer assignment type mismatch for declared identifier %s\n", identifier);
-        return FAIL;
-      }
-
       int ret = analyze_expression(node->right, table);
       if (ret == FAIL) {
+        node->type_kind = TYPE_ERROR;
+        return FAIL;
+      }
+
+      enum TypeKind rhs_expr_type = analyze_expression_type(node->right, table);
+      if (rhs_expr_type == TYPE_ERROR) {
+        printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
+        node->type_kind = TYPE_ERROR;
+        return FAIL;
+      }
+
+      if (declared_variable_type != rhs_expr_type) {
+        printf("error: intializer assignment type mismatch for declared identifier %s\n", identifier);
+        printf("error: expected %s but found %s type.\n",
+          typekind_type_name(declared_variable_type), typekind_type_name(rhs_expr_type));
+        node->type_kind = TYPE_ERROR;
         return FAIL;
       }
     }
+
+    node->left->type_kind = declared_variable_type;
+    store_symbol(table, declared_variable_type, identifier, 0); // last argument is not relevant at this stage
+    node->type_kind = declared_variable_type;
     return SUCCESS;
   } else  if (node->kind == AST_ASSIGNMENT) {
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: assignment left side must be an identifier\n");
+      printf("error: left side of an assignment statement must be an identifier\n");
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
@@ -999,47 +1134,71 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     struct Symbol *symbol = lookup_symbol(table, identifier);
     if (symbol == NULL) {
       printf("error: assignment to undeclared identifier %s\n", identifier);
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
+
+    if (symbol->type == TYPE_ERROR || symbol->type == TYPE_UNKNOWN || symbol->type == TYPE_UNUSED) {
+      printf("error: unsupported type found: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    if (symbol->type != TYPE_INT) {
+      printf("error: currently minic only support INT types. Found %s type.\n", typekind_type_name(symbol->type));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+    node->left->type_kind = symbol->type;
 
     if (node->right == NULL) {
       printf("error: missing assignment value for identifier %s\n", identifier);
-      return FAIL;
-    }
-
-    enum TypeKind expr_type = analyze_expression_type(node->right, table);
-    if (expr_type == TYPE_ERROR) {
-      printf("error: RHS expression has unsupported type.\n");
-      return FAIL;
-    }
-
-    if (symbol->type != expr_type) {
-      printf("error: assignment type mismatch for identifier %s\n", identifier);
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     int ret = analyze_expression(node->right, table);
     if (ret == FAIL) {
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
+    enum TypeKind rhs_expr_type = analyze_expression_type(node->right, table);
+    if (rhs_expr_type == TYPE_ERROR) {
+      printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    if (symbol->type != rhs_expr_type) {
+      printf("error: assignment type mismatch for identifier %s\n", identifier);
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    node->type_kind = symbol->type;
     return SUCCESS;
-  } else  if (node->kind == AST_PRINT) {
+  } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
-      return SUCCESS; // There is nothing to print and that's okay.
+      printf("error: print statement requires an expression\n");
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
     }
 
     int ret = analyze_expression(node->left, table);
     if (ret == FAIL) {
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     enum TypeKind expr_type = analyze_expression_type(node->left, table);
     if (expr_type == TYPE_ERROR) {
       printf("error: print expression has unsupported type\n");
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
+    node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   }
 
@@ -1049,19 +1208,26 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
 
 int analyze_program(struct ASTNode *node, struct SymbolTable *table) {
   if (node == NULL) {
+    printf("error: program node is NULL\n");
     return FAIL;
   }
 
-  if (node->kind == AST_PROGRAM) {
-    for (int c=0; c < node->statement_count; c++) {
-      if (analyze_statement(node->statements[c], table) == FAIL) { 
-        return FAIL;
-      }
-    }
-    return SUCCESS;
+  if (node->kind != AST_PROGRAM) {
+    printf("error: analyze_program expected AST_PROGRAM node.\n");
+    return FAIL;
   }
 
-  return FAIL;
+  for (int c=0; c < node->statement_count; c++) {
+    if (node->statements[c] == NULL) {
+      return FAIL;
+    }
+
+    if (analyze_statement(node->statements[c], table) == FAIL) { 
+      return FAIL;
+    }
+  }
+  
+  return SUCCESS;
 }
 
 // parser function per grammer rule
@@ -1245,6 +1411,10 @@ struct ASTNode * parse_term(struct Parser *p) {
 
   struct ASTNode * left = NULL;
   left = parse_factor(p);
+  if (left == NULL) {
+    return NULL;
+  }
+
   while (p->has_error == 0) {
     struct Token token = current_token(p);
     if (is_current_token(p, TOKEN_PLUS)) {
@@ -1289,6 +1459,10 @@ struct ASTNode * parse_comparison(struct Parser *p) {
 
   struct ASTNode * left = NULL;
   left = parse_term(p);
+  if (left == NULL) {
+    return NULL;
+  }
+
   while (p->has_error == 0) {
     struct Token token = current_token(p);
     if (is_current_token(p, TOKEN_LESS)) {
@@ -1332,6 +1506,10 @@ struct ASTNode * parse_equality(struct Parser *p) {
 
   struct ASTNode * left = NULL;
   left = parse_comparison(p);
+  if (left == NULL) {
+    return NULL;
+  }
+
   while (p->has_error == 0) {
     struct Token token = current_token(p);
     if (is_current_token(p, TOKEN_EQUAL_EQUAL)) {
@@ -1428,8 +1606,8 @@ struct ASTNode * parse_declaration(struct Parser *p) {
     return NULL;
   }
 
-  struct ASTNode * ident = parse_identifier(p);
-  if ( ident == NULL ) {
+  struct ASTNode * identifier = parse_identifier(p);
+  if ( identifier == NULL ) {
     p->has_error = 1;
     return NULL;
   }
@@ -1445,7 +1623,7 @@ struct ASTNode * parse_declaration(struct Parser *p) {
     return NULL;
   }
 
-  struct ASTNode * node = createDeclarationNode(TOKEN_INT, ident, rightValue);
+  struct ASTNode * node = createDeclarationNode(TOKEN_INT, identifier, rightValue);
   if (node == NULL) {
     p->has_error = 1;
   }
@@ -1589,12 +1767,16 @@ int main(void) {
   code="print(10/0);";
   code="int x=-5;print(x);";
   code="print(3>5);print(4>2);print(7!=7);print(8==7);";
+  code="int z = x + y; int x = 1; int y = 1;";
+  code="int x=40; int y=2; print(x+x/y); print(x+2*y); print(x);";
+  code="int x; x=40; print(x+x/2);";
   code="print(1+2==3);print(2*3<7);print(2+3*4==14);print((2+3)*4==20);";
 
   printf("Input: %s\n", code);
   // Lexer
   printf("\n\n--> Tokenizer PHASE: Start\n");
   int result = tokenize(code, tokens, &token_count);
+  /*
   printf("--> Print tokens--\n");
   for (int i = 0; i < token_count; i++) {
     print_token(tokens[i]);
@@ -1604,6 +1786,7 @@ int main(void) {
     exit(-1);
   }
   printf("--> Tokenizer PHASE: PASS\n");
+  */
 
   // Parser
   struct Parser p;
@@ -1619,9 +1802,10 @@ int main(void) {
   }
   printf("--> PARSING PHASE: PASS\n");
 
-  printf("Stopped at: ");
+  printf("\nStopped at: ");
   print_token(current_token(&p));
-  printf("Print AST Tree:\n ");
+
+  printf("\nPrint AST Tree after PARSING PHASE:\n ");
   print_ast_tree(program, 0);
 
   // Check sematics of the program before we evaluate it
@@ -1636,6 +1820,8 @@ int main(void) {
     printf("--> SEMANTIC CHECK PHASE: FAILED\n");
     exit(-1);
   }
+  printf("\nPrint AST Tree after SEMANTIC CHECK PHASE:\n ");
+  print_ast_tree(program, 0);
   printf("--> SEMANTIC CHECK PHASE: PASS\n");
 
   // Program is semantically okay so go ahead and evaluate it
