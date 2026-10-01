@@ -1771,6 +1771,8 @@ int main(void) {
   code="int x=40; int y=2; print(x+x/y); print(x+2*y); print(x);";
   code="int x; x=40; print(x+x/2);";
   code="print(1+2==3);print(2*3<7);print(2+3*4==14);print((2+3)*4==20);";
+  code="print(1+2*3==7); print((1+2)*3==9); print(4<2+3); print(4*2==3+5);";
+  code="print(1+2*3==9); print((1+2)*3==7); print(4<2+1); print(4*2==3+4);";
 
   printf("Input: %s\n", code);
   // Lexer
