@@ -9,6 +9,7 @@ A declaration may optionally include an initializer expression.
 Any identifier used in an expression must be already declared. That covers
 - declaration initializer expressions
 - assignment expressions
+- print_statment (this is explicit AST Node to print result
 
 =============
 GRAMMER rules
@@ -18,10 +19,15 @@ statement -> declaration | assignment | print_statement
 declaration -> INT IDENTIFIER ("=" expression)? SEMICOLON
 assignment -> IDENTIFIER EQUAL expression SEMICOLON
 print_statement -> PRINT LPAREN expression RPAREN SEMICOLON
-expression -> term ((PLUS | MINUS) term)*
-term -> unary ((STAR | SLASH) unary)*
+
+expression -> equality
+equality -> comparison ((EQUAL_EQUAL | BANG_EQUAL) comparison)*
+comparison -> term ((LESS | GREATER) term)*
+term -> factor ((PLUS | MINUS) factor)*
+factor -> unary ((STAR | SLASH) unary)*
 unary -> ('-' | '+') unary | primary
 primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
+
 
 ******************************************************************************/
 
@@ -45,6 +51,10 @@ enum TokenKind {
   TOKEN_SLASH,
   TOKEN_MINUS,
   TOKEN_EQUAL,
+  TOKEN_LESS,
+  TOKEN_GREATER,
+  TOKEN_EQUAL_EQUAL,
+  TOKEN_BANG_EQUAL,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_SEMICOLON,
@@ -173,6 +183,14 @@ const char *token_type_name(enum TokenKind type) {
       return "-";
     case TOKEN_EQUAL:
       return "=";
+    case TOKEN_LESS:
+      return "<";
+    case TOKEN_GREATER:
+      return ">";
+    case TOKEN_EQUAL_EQUAL:
+      return "==";
+    case TOKEN_BANG_EQUAL:
+      return "!=";
     case TOKEN_LPAREN:
       return "(";
     case TOKEN_RPAREN:
@@ -262,6 +280,14 @@ int is_equal(char c) {
   return (c == '=');
 }
 
+int is_less(char c) {
+  return (c == '<');
+}
+
+int is_greater(char c) {
+  return (c == '>');
+}
+
 int is_star(char c) {
   return (c == '*');
 }
@@ -329,7 +355,7 @@ void skip_spaces(char *code, int *i) {
   }
 }
 
-void tokenize(char *code, struct Token tokens[], int *token_count) {
+int tokenize(char *code, struct Token tokens[], int *token_count) {
   int idx = 0;
   while(code[idx] != '\0') {
     if (is_space(code[idx])) {
@@ -354,8 +380,27 @@ void tokenize(char *code, struct Token tokens[], int *token_count) {
       add_token(tokens, token_count, TOKEN_SLASH, code + idx, 1);
       idx++;
     } else if (is_equal(code[idx])) {
-      add_token(tokens, token_count, TOKEN_EQUAL, code + idx, 1);
+      if (code[idx+1] == '=') {
+        add_token(tokens, token_count, TOKEN_EQUAL_EQUAL, code + idx, 2);
+        idx += 2;
+      } else {
+        add_token(tokens, token_count, TOKEN_EQUAL, code + idx, 1);
+        idx++;
+      }
+    } else if (is_less(code[idx])) {
+      add_token(tokens, token_count, TOKEN_LESS, code + idx, 1);
       idx++;
+    } else if (is_greater(code[idx])) {
+      add_token(tokens, token_count, TOKEN_GREATER, code + idx, 1);
+      idx++;
+    } else if (code[idx] == '!') {
+      if (code[idx + 1] == '=') {
+        add_token(tokens, token_count, TOKEN_BANG_EQUAL, code + idx, 2);
+        idx += 2;
+      } else {
+        printf("error: unexpected character '!'\n");
+        return FAIL;
+      }
     } else if (is_lparen(code[idx])) {
       add_token(tokens, token_count, TOKEN_LPAREN, code + idx, 1);
       idx++;
@@ -378,6 +423,7 @@ void tokenize(char *code, struct Token tokens[], int *token_count) {
     }
   }
   add_token(tokens, token_count, TOKEN_EOF, code + idx, 0);
+  return SUCCESS;
 }
 
 // Parser
@@ -676,6 +722,30 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
         return FAIL;
       }
       *out_value = leftNum / rightNum;
+    } else if (node->operator_kind == TOKEN_LESS) {
+      if (leftNum < rightNum) {
+        *out_value = 1;
+      } else {
+        *out_value = 0;
+      }
+    } else if (node->operator_kind == TOKEN_GREATER) {
+      if (leftNum > rightNum) {
+        *out_value = 1;
+      } else {
+        *out_value = 0;
+      }
+    } else if (node->operator_kind == TOKEN_EQUAL_EQUAL) {
+      if (leftNum == rightNum) {
+        *out_value = 1;
+      } else {
+        *out_value = 0;
+      }
+    } else if (node->operator_kind == TOKEN_BANG_EQUAL) {
+      if (leftNum != rightNum) {
+        *out_value = 1;
+      } else {
+        *out_value = 0;
+      }
     }
     return SUCCESS;
   } else if (node->kind == AST_IDENTIFIER) {
@@ -1118,8 +1188,8 @@ struct ASTNode * parse_unary(struct Parser *p) {
   return NULL;
 }
 
-// term -> unary ((STAR | SLASH) unary)*
-struct ASTNode * parse_term(struct Parser *p) {
+// factor -> unary ((STAR | SLASH) unary)*
+struct ASTNode * parse_factor(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
@@ -1167,8 +1237,52 @@ struct ASTNode * parse_term(struct Parser *p) {
   return left;
 }
 
-// expression -> term ((PLUS | MINUS) term)*
-struct ASTNode * parse_expression(struct Parser *p) {
+// term -> factor ((PLUS | MINUS) factor)*
+struct ASTNode * parse_term(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * left = NULL;
+  left = parse_factor(p);
+  while (p->has_error == 0) {
+    struct Token token = current_token(p);
+    if (is_current_token(p, TOKEN_PLUS)) {
+      expect_token(p, TOKEN_PLUS);  // consume the token
+    } else if (is_current_token(p, TOKEN_MINUS)) {
+      expect_token(p, TOKEN_MINUS); // consume the token
+    } else {
+      break;
+    }
+
+    if ( p->has_error) {
+      break;
+    }
+
+    struct ASTNode * right = parse_factor(p);
+    if (right == NULL) {
+      p->has_error = 1;
+      break;
+    }
+
+    struct ASTNode * node = createBinaryNode(token.type, left, right);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      left = node;
+    }
+  }
+
+  if (p->has_error) {
+    return NULL;
+  }
+
+  return left;
+
+}
+
+// comparison -> term ((LESS | GREATER) term)*
+struct ASTNode * parse_comparison(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
@@ -1177,10 +1291,10 @@ struct ASTNode * parse_expression(struct Parser *p) {
   left = parse_term(p);
   while (p->has_error == 0) {
     struct Token token = current_token(p);
-    if (is_current_token(p, TOKEN_PLUS)) {
-      expect_token(p, TOKEN_PLUS);  // consume the token
-    } else if (is_current_token(p, TOKEN_MINUS)) {
-      expect_token(p, TOKEN_MINUS); // consume the token
+    if (is_current_token(p, TOKEN_LESS)) {
+      expect_token(p, TOKEN_LESS);  // consume the token
+    } else if (is_current_token(p, TOKEN_GREATER)) {
+      expect_token(p, TOKEN_GREATER); // consume the token
     } else {
       break;
     }
@@ -1208,6 +1322,60 @@ struct ASTNode * parse_expression(struct Parser *p) {
   }
 
   return left;
+}
+
+// equality -> comparison ((EQUAL_EQUAL | BANG_EQUAL) comparison)*
+struct ASTNode * parse_equality(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * left = NULL;
+  left = parse_comparison(p);
+  while (p->has_error == 0) {
+    struct Token token = current_token(p);
+    if (is_current_token(p, TOKEN_EQUAL_EQUAL)) {
+      expect_token(p, TOKEN_EQUAL_EQUAL);  // consume the token
+    } else if (is_current_token(p, TOKEN_BANG_EQUAL)) {
+      expect_token(p, TOKEN_BANG_EQUAL); // consume the token
+    } else {
+      break;
+    }
+
+    if ( p->has_error) {
+      break;
+    }
+
+    struct ASTNode * right = parse_comparison(p);
+    if (right == NULL) {
+      p->has_error = 1;
+      break;
+    }
+
+    struct ASTNode * node = createBinaryNode(token.type, left, right);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      left = node;
+    }
+  }
+
+  if (p->has_error) {
+    return NULL;
+  }
+
+  return left;
+}
+
+// expression -> equality
+struct ASTNode * parse_expression(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * node = parse_equality(p);
+
+  return node;
 }
 
 // assignment -> IDENTIFIER EQUAL expression SEMICOLON
@@ -1420,16 +1588,22 @@ int main(void) {
   //code="int x=4; int y=2; print((x+2)*y);";
   code="print(10/0);";
   code="int x=-5;print(x);";
-  code="int x=1; print(-5); print(-(4+3));print(-x);";
+  code="print(3>5);print(4>2);print(7!=7);print(8==7);";
+  code="print(1+2==3);print(2*3<7);print(2+3*4==14);print((2+3)*4==20);";
 
   printf("Input: %s\n", code);
   // Lexer
   printf("\n\n--> Tokenizer PHASE: Start\n");
-  tokenize(code, tokens, &token_count);
+  int result = tokenize(code, tokens, &token_count);
   printf("--> Print tokens--\n");
   for (int i = 0; i < token_count; i++) {
     print_token(tokens[i]);
   }
+  if (result == FAIL) {
+    printf("--> Tokenizer PHASE: FAILED\n");
+    exit(-1);
+  }
+  printf("--> Tokenizer PHASE: PASS\n");
 
   // Parser
   struct Parser p;
@@ -1456,7 +1630,7 @@ int main(void) {
   struct SymbolTable semantic_table;
   initialize_symbol_table(&semantic_table);
 
-  int result = analyze_program(program, &semantic_table);
+  result = analyze_program(program, &semantic_table);
   print_symbol_table(&semantic_table);
   if (result == 0) {
     printf("--> SEMANTIC CHECK PHASE: FAILED\n");
