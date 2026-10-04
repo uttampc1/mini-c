@@ -501,7 +501,6 @@ struct Token current_token(struct Parser *p) {
 void expect_token(struct Parser *p, enum TokenKind type) {
   struct Token t = p->tokens[p->pos];
   if (t.type == type) {
-    //printf("Found token: %s\n", token_type_name(type));
     advance_token(p);
   } else {
     p->has_error = 1;
@@ -526,7 +525,9 @@ struct ASTNode * createUnaryNode(enum TokenKind type) {
   node->operator_kind = type;
   node->type_kind = TYPE_UNKNOWN;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -547,7 +548,9 @@ struct ASTNode * createNumberNode(int value) {
   node->type_kind = TYPE_INT;
   node->operator_kind = TOKEN_UNKNOWN;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -571,7 +574,9 @@ struct ASTNode * createIdentifierNode(char *name) {
   node->operator_kind = TOKEN_UNKNOWN;
   node->type_kind = TYPE_UNKNOWN;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -592,7 +597,9 @@ struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode
   node->operator_kind = type;
   node->type_kind = TYPE_UNKNOWN;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -613,7 +620,9 @@ struct ASTNode * createDeclarationNode(enum TokenKind type, struct ASTNode *iden
   node->operator_kind = TOKEN_UNKNOWN;
   node->type_kind = TYPE_UNUSED;
   node->declared_variable_type = token_to_typekind(type);
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -634,7 +643,9 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
   node->operator_kind = TOKEN_UNKNOWN;
   node->type_kind = TYPE_UNUSED;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -656,7 +667,9 @@ struct ASTNode * createPrintNode(struct ASTNode * expr) {
   node->operator_kind = TOKEN_UNKNOWN;
   node->type_kind = TYPE_UNUSED;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -678,7 +691,9 @@ struct ASTNode * createBlockNode() {
   node->operator_kind = TOKEN_UNKNOWN;
   node->type_kind = TYPE_UNUSED;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -699,7 +714,9 @@ struct ASTNode * createProgramNode() {
   node->operator_kind = TOKEN_UNKNOWN;
   node->type_kind = TYPE_UNUSED;
   node->declared_variable_type = TYPE_UNUSED;
-  memset(node->statements, 0, sizeof(node->statements));
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
   node->statement_count = 0;
   return node;
 }
@@ -817,7 +834,9 @@ void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, int
     return;
   }
 
-  memset(new_symbol, '\0', symbol_len+1);
+  for (int i=0; i < symbol_len+1; i++) {
+    new_symbol[i] = '\0';
+  }
   strncpy(new_symbol, name, symbol_len);
 
   table->symbols[table->count].type = type;
@@ -1827,11 +1846,8 @@ struct ASTNode * parse_block(struct Parser *p) {
     }
 
     if (!is_current_token(p, TOKEN_RBRACE)) {
-      // call to parse_statements?
       struct ASTNode *statement = parse_statement(p);
-
       if (statement) {
-        // print statment to the ast_block
         add_statement_to_block(block, statement);
       }
       continue;
@@ -1948,7 +1964,7 @@ int main(void) {
   code="print(20-5-3);";
   code="print(20/5/2);";
   code="int x=4; int y=2; print((x/x)/y);";
-  //code="int x=4; int y=2; print((x+2)*y);";
+  code="int x=4; int y=2; print((x+2)*y);";
   code="print(10/0);";
   code="int x=-5;print(x);";
   code="print(3>5);print(4>2);print(7!=7);print(8==7);";
@@ -1965,7 +1981,7 @@ int main(void) {
   code="{ int x;}"; //int z = x + y; int x = 1; int y = 1;";
   code="int x=1; { int x=5; int y=x; print(x);} print(x);";
   code="{ int z=1; { int x=2; { int y=z; print(y); } } }";
-  //code="{ int y=5; } print(y);";
+  code="{ int y=5; } print(y);";
   code="int x=1; { int y=x; print(y); }";
 
   printf("Input: %s\n", code);
