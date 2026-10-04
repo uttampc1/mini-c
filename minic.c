@@ -57,6 +57,8 @@ enum TokenKind {
   TOKEN_BANG_EQUAL,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
+  TOKEN_LBRACE,
+  TOKEN_RBRACE,
   TOKEN_SEMICOLON,
   TOKEN_INT,
   TOKEN_PRINT,
@@ -72,6 +74,7 @@ enum ASTNodeKind {
   AST_DECLARATION,
   AST_ASSIGNMENT,
   AST_PRINT,
+  AST_BLOCK,
   AST_PROGRAM
 };
 
@@ -114,6 +117,7 @@ struct Symbol {
 };
 
 struct SymbolTable {
+  struct SymbolTable *parent;
   struct Symbol symbols[MAX_SYMBOLS];
   int count;
 };
@@ -128,6 +132,11 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
 struct ASTNode * createPrintNode(struct ASTNode * expr);
 struct ASTNode * createProgramNode();
 
+struct Symbol * lookup_symbol_current(struct SymbolTable *table, char *name); // current scope search
+struct Symbol * lookup_symbol_visible(struct SymbolTable *table, char *name); // globalc scope search
+struct ASTNode * parse_program(struct Parser *p);
+struct ASTNode * parse_block(struct Parser *p);
+struct ASTNode * parse_statement(struct Parser *p);
 struct ASTNode * parse_expression(struct Parser *p);
 struct ASTNode * parse_primary(struct Parser *p);
 struct ASTNode * parse_term(struct Parser *p);
@@ -156,6 +165,8 @@ char *node_type_name(enum ASTNodeKind kind) {
       return "PRINT";
     case AST_DECLARATION:
       return "DECL";
+    case AST_BLOCK:
+      return "BLOCK";
     case AST_PROGRAM:
       return "PROGRAM";
   }
@@ -208,6 +219,10 @@ const char *token_type_name(enum TokenKind type) {
       return "(";
     case TOKEN_RPAREN:
       return ")";
+    case TOKEN_LBRACE:
+      return "LBRACE";
+    case TOKEN_RBRACE:
+      return "RBRACE";
     case TOKEN_SEMICOLON:
       return ";";
     case TOKEN_UNKNOWN:
@@ -243,11 +258,18 @@ void print_symbol_table(struct SymbolTable *table) {
     return;
   }
 
-  printf("Symbol Table\n");
+  printf("--- print Symbol Table ---\n");
+  if (t->count <= 0) {
+    printf("warning: no symbols found\n");
+    return;
+  }
+
   for (int s = 0; s < t->count; s++) {
     printf("[%d] name=%s, type=%s, value=%d\n",
       s, t->symbols[s].name, typekind_type_name(t->symbols[s].type), t->symbols[s].value);
   }
+
+  return;
 }
 
 void print_ast_tree(struct ASTNode *node, int depth) {
@@ -258,13 +280,18 @@ void print_ast_tree(struct ASTNode *node, int depth) {
   }
 
   if (t->kind == AST_PROGRAM) {
-    printf("%s\n", node_type_name(t->kind));
+    printf("%s %s\n", node_type_name(t->kind), typekind_type_name(t->type_kind));
     for (int c=0; c < t->statement_count; c++) {
       print_ast_tree(t->statements[c], depth+1);
     }
     return;
   } else if (t->kind == AST_DECLARATION) {
     printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
+  } else if (t->kind == AST_BLOCK) {
+    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
+    for (int c=0; c < t->statement_count; c++) {
+      print_ast_tree(t->statements[c], depth+1);
+    }
   } else if (t->kind == AST_PRINT) {
     printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_ASSIGNMENT) {
@@ -327,6 +354,14 @@ int is_lparen(char c) {
 
 int is_rparen(char c) {
   return (c == ')');
+}
+
+int is_lbrace(char c) {
+  return (c == '{');
+}
+
+int is_rbrace(char c) {
+  return (c == '}');
 }
 
 int is_space(char c) {
@@ -419,6 +454,12 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
       idx++;
     } else if (is_rparen(code[idx])) {
       add_token(tokens, token_count, TOKEN_RPAREN, code + idx, 1);
+      idx++;
+    } else if (is_lbrace(code[idx])) {
+      add_token(tokens, token_count, TOKEN_LBRACE, code + idx, 1);
+      idx++;
+    } else if (is_rbrace(code[idx])) {
+      add_token(tokens, token_count, TOKEN_RBRACE, code + idx, 1);
       idx++;
     } else if (is_alpha(code[idx])) {
       int start = idx;
@@ -620,10 +661,31 @@ struct ASTNode * createPrintNode(struct ASTNode * expr) {
   return node;
 }
 
-// Program node which holds a list of statements and count
-struct ASTNode * createProgramNode() {
+// BLOCK node which holds a list of statements for a block and count
+struct ASTNode * createBlockNode() {
   struct ASTNode * node = NULL;
   node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    printf("error: couldn't allocate memory for block ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_BLOCK;
+  node->number_value = -9999;
+  node->left = NULL;
+  node->right = NULL;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->type_kind = TYPE_UNUSED;
+  node->declared_variable_type = TYPE_UNUSED;
+  memset(node->statements, 0, sizeof(node->statements));
+  node->statement_count = 0;
+  return node;
+}
+
+// Program node which holds a list of statements and count
+struct ASTNode * createProgramNode() {
+  struct ASTNode * node = createBlockNode();
   if (node == NULL) {
     printf("error: couldn't allocate memory for program ASTNode\n");
     return NULL;
@@ -642,31 +704,52 @@ struct ASTNode * createProgramNode() {
   return node;
 }
 
+
 // helper: add new statement to the program node.
-void add_statement_to_program(struct ASTNode * program, struct ASTNode * statement) {
-  struct ASTNode * pNode = program;
+void add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) {
+  struct ASTNode * program = node;
 
   // we can add few checks
   // program != NULL
   // program->kind == AST_PROGRAM
   // statement != NULL
-  if ( (pNode) && (pNode->kind == AST_PROGRAM) && (statement != NULL) ) {
-    int count = pNode->statement_count;
+  if ( program && (program->kind == AST_PROGRAM) && (statement != NULL) ) {
+    int count = program->statement_count;
 
     if (count < 256) {
-     pNode->statements[count] = statement;
-     pNode->statement_count = count + 1;
+     program->statements[count] = statement;
+     program->statement_count = count + 1;
+    }
+  }
+  return;
+}
+
+void add_statement_to_block(struct ASTNode * node, struct ASTNode * statement) {
+  struct ASTNode * block = node;
+
+  // we can add few checks
+  // program != NULL
+  // program->kind == AST_PROGRAM
+  // statement != NULL
+  if ( block && (block->kind == AST_BLOCK) && (statement != NULL) ) {
+    int count = block->statement_count;
+
+    if (count < 256) {
+     block->statements[count] = statement;
+     block->statement_count = count + 1;
     }
   }
   return;
 }
 
 // Symbol table
-void initialize_symbol_table(struct SymbolTable *table) {
+void initialize_symbol_table(struct SymbolTable *table, struct SymbolTable *parent) {
+  table->parent = parent;
   table->count = 0;
 }
 
-struct Symbol * lookup_symbol(struct SymbolTable *table, char *name) {
+// return symbol if it exists in current scope
+struct Symbol * lookup_symbol_current(struct SymbolTable *table, char *name) {
   if (table == NULL) {
     printf("Symbol table pointer in null/invalid\n");
     return NULL;
@@ -682,9 +765,32 @@ struct Symbol * lookup_symbol(struct SymbolTable *table, char *name) {
   return NULL;
 }
 
+// if current scope doesn't have, check its parent, until 
+// either it is found or parent is NULL.
+struct Symbol * lookup_symbol_visible(struct SymbolTable *table, char *name) {
+  if (table == NULL) {
+    printf("Symbol table pointer in null/invalid\n");
+    return NULL;
+  }
+
+  // search current scope (table)
+  struct Symbol * symbol = lookup_symbol_current(table, name);
+  if (symbol) {
+    return symbol;
+  }
+
+  // not found in current, check it's parent recursively
+  if (table->parent) {
+    return lookup_symbol_visible(table->parent, name);
+  }
+
+  return NULL;
+}
+
 // add symbol if symbol doesn't exists in the table
 // update value if symbol exists in the table
 void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, int value) {
+  printf("Add [%s] symbol to the table\n", name);
   if (table == NULL) {
     printf("Symbol table pointer in null/invalid\n");
     return;
@@ -802,9 +908,8 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
     }
     return SUCCESS;
   } else if (node->kind == AST_IDENTIFIER) {
-    struct Symbol *symbol = lookup_symbol(table, node->identifier_name);
+    struct Symbol *symbol = lookup_symbol_visible(table, node->identifier_name);
     if (symbol) {
-      //printf("Symbol(%s) found with value(%d)\n", symbol->name, symbol->value);
       *out_value = symbol->value;    
       return SUCCESS;
     } else {
@@ -832,7 +937,7 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
 
     char *identifier = node->left->identifier_name;
     int out_value = 0;
-    struct Symbol *symbol = lookup_symbol(table, identifier);
+    struct Symbol *symbol = lookup_symbol_current(table, identifier);
     if (symbol) {
       printf("error: redeclaration of identifier %s\n", identifier);
       return FAIL;
@@ -848,9 +953,8 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     return SUCCESS;
   } else if (node->kind == AST_ASSIGNMENT) {
     enum TypeKind type_kind = node->type_kind;
-
     char *identifier = node->left->identifier_name;
-    struct Symbol *symbol = lookup_symbol(table, identifier);
+    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
       printf("error: assignment to undeclared identifier %s\n", identifier);
       return FAIL;
@@ -863,6 +967,23 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
       printf("%s = %d\n", identifier, out_value);
       store_symbol(table, type_kind, identifier, out_value);
     }
+    return SUCCESS;
+  } else  if (node->kind == AST_BLOCK) {
+    struct SymbolTable local_semantic_table;
+    initialize_symbol_table(&local_semantic_table, table);
+
+    for (int c=0; c < node->statement_count; c++) {
+      if (node->statements[c] == NULL) {
+        return FAIL;
+      }
+
+      if (eval_statement(node->statements[c], &local_semantic_table) == FAIL) { 
+        return FAIL;
+      }
+    }
+
+    printf("Print local symbol table at EVAL block\n");
+    print_symbol_table(&local_semantic_table);
     return SUCCESS;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
@@ -909,8 +1030,9 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
   if (node->kind == AST_NUMBER) {
     return TYPE_INT;
   } else if (node->kind == AST_IDENTIFIER) {
+
     char *identifier = node->identifier_name;
-    struct Symbol *symbol = lookup_symbol(table, identifier);
+    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
       return TYPE_ERROR;
     }
@@ -997,7 +1119,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     return SUCCESS;
   } else if (node->kind == AST_IDENTIFIER) {
     char *identifier = node->identifier_name;
-    struct Symbol *symbol = lookup_symbol(table, identifier);
+    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
       node->type_kind = TYPE_ERROR;
       printf("error: use of undeclared identifier %s\n", identifier);
@@ -1089,7 +1211,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     }
 
     char *identifier = node->left->identifier_name;
-    struct Symbol *symbol = lookup_symbol(table, identifier);
+    struct Symbol *symbol = lookup_symbol_current(table, identifier);
     if (symbol) {
       printf("error: redeclaration of identifier %s\n", identifier);
       node->type_kind = TYPE_ERROR;
@@ -1124,6 +1246,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     node->type_kind = declared_variable_type;
     return SUCCESS;
   } else  if (node->kind == AST_ASSIGNMENT) {
+
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
       printf("error: left side of an assignment statement must be an identifier\n");
       node->type_kind = TYPE_ERROR;
@@ -1131,7 +1254,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     }
 
     char *identifier = node->left->identifier_name;
-    struct Symbol *symbol = lookup_symbol(table, identifier);
+    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
       printf("error: assignment to undeclared identifier %s\n", identifier);
       node->type_kind = TYPE_ERROR;
@@ -1177,6 +1300,23 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     }
 
     node->type_kind = symbol->type;
+    return SUCCESS;
+  } else  if (node->kind == AST_BLOCK) {
+    struct SymbolTable local_semantic_table;
+    initialize_symbol_table(&local_semantic_table, table);
+
+    for (int c=0; c < node->statement_count; c++) {
+      if (node->statements[c] == NULL) {
+        return FAIL;
+      }
+
+      if (analyze_statement(node->statements[c], &local_semantic_table) == FAIL) { 
+        return FAIL;
+      }
+    }
+
+    printf("Local symbol table after analyzing statement.\n");
+    print_symbol_table(&local_semantic_table);
     return SUCCESS;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
@@ -1666,7 +1806,50 @@ struct ASTNode * parse_print_stmt(struct Parser *p) {
   return NULL;
 }
 
-// statement -> declaration | assignment | print_statement
+// block -> '{' statement* '}'
+struct ASTNode * parse_block(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  // create a AST_BLOCK
+  struct ASTNode * block = createBlockNode();
+  expect_token(p, TOKEN_LBRACE); // Start of a block
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  while (p->has_error == 0) {
+    if (is_current_token(p, TOKEN_EOF)) {
+      printf("error: expected } before of end of input\n");
+      p->has_error=1;
+      return NULL;
+    }
+
+    if (!is_current_token(p, TOKEN_RBRACE)) {
+      // call to parse_statements?
+      struct ASTNode *statement = parse_statement(p);
+
+      if (statement) {
+        // print statment to the ast_block
+        add_statement_to_block(block, statement);
+      }
+      continue;
+    }
+
+    // consume RBRACE token
+    expect_token(p, TOKEN_RBRACE);
+    if ( p->has_error ) {
+      return NULL;
+    }
+    break;
+  }
+
+  // return whole AST_BLOCK with a list of statements
+  return block;
+}
+
+// statement -> block | declaration | assignment | print_statement
 struct ASTNode * parse_statement(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -1677,13 +1860,15 @@ struct ASTNode * parse_statement(struct Parser *p) {
     node = parse_declaration(p);
   } else if (is_current_token(p, TOKEN_PRINT)) {
     node = parse_print_stmt(p);
+  } else if (is_current_token(p, TOKEN_LBRACE)) {
+    node = parse_block(p);
   } else {
     node = parse_assignment(p);
   }
   return node;
 }
 
-// program -> statements*
+// program -> statements* 
 struct ASTNode * parse_program(struct Parser *p) {
 
   struct ASTNode * program = createProgramNode();
@@ -1773,12 +1958,21 @@ int main(void) {
   code="print(1+2==3);print(2*3<7);print(2+3*4==14);print((2+3)*4==20);";
   code="print(1+2*3==7); print((1+2)*3==9); print(4<2+3); print(4*2==3+5);";
   code="print(1+2*3==9); print((1+2)*3==7); print(4<2+1); print(4*2==3+4);";
+  code="{ int x=10; }";
+  code="{int x=10; int y=3; print(x+y*2); print((x+y)*2); print(x>y); print(x==y);}";
+  code="{ int x=5; int y=x;}";
+  code="{int z=1; { int x=1; { int y=z; print(y); } } }";
+  code="{ int x;}"; //int z = x + y; int x = 1; int y = 1;";
+  code="int x=1; { int x=5; int y=x; print(x);} print(x);";
+  code="{ int z=1; { int x=2; { int y=z; print(y); } } }";
+  //code="{ int y=5; } print(y);";
+  code="int x=1; { int y=x; print(y); }";
 
   printf("Input: %s\n", code);
   // Lexer
   printf("\n\n--> Tokenizer PHASE: Start\n");
   int result = tokenize(code, tokens, &token_count);
-  /*
+
   printf("--> Print tokens--\n");
   for (int i = 0; i < token_count; i++) {
     print_token(tokens[i]);
@@ -1788,7 +1982,6 @@ int main(void) {
     exit(-1);
   }
   printf("--> Tokenizer PHASE: PASS\n");
-  */
 
   // Parser
   struct Parser p;
@@ -1814,14 +2007,18 @@ int main(void) {
   printf("\n\n--> SEMANTIC CHECK PHASE: Start\n");
   printf("Initialize symbol table for Semantic check\n");
   struct SymbolTable semantic_table;
-  initialize_symbol_table(&semantic_table);
-
-  result = analyze_program(program, &semantic_table);
+  initialize_symbol_table(&semantic_table, NULL);
   print_symbol_table(&semantic_table);
+  result = analyze_program(program, &semantic_table);
+
   if (result == 0) {
     printf("--> SEMANTIC CHECK PHASE: FAILED\n");
     exit(-1);
   }
+
+  printf("Global symbol table after semantic phase\n");
+  print_symbol_table(&semantic_table);
+
   printf("\nPrint AST Tree after SEMANTIC CHECK PHASE:\n ");
   print_ast_tree(program, 0);
   printf("--> SEMANTIC CHECK PHASE: PASS\n");
@@ -1830,8 +2027,10 @@ int main(void) {
   printf("\n\n--> EVALUATION CHECK PHASE: Start\n");
   printf("Initialize symbol table for Evaluation check\n");
   struct SymbolTable runtime_table;
-  initialize_symbol_table(&runtime_table);
+  initialize_symbol_table(&runtime_table, NULL);
+  print_symbol_table(&runtime_table);
   result = eval_program(program, &runtime_table);
+  printf("Global symbol table after evaluation phase\n");
   print_symbol_table(&runtime_table);
   if (result == 0) {
     printf("--> EVALUATION CHECK PHASE: FAILED\n");
