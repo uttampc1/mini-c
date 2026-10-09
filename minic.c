@@ -35,11 +35,14 @@ primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define SUCCESS 1
 #define FAIL    0
 
-#define BUFFER_SIZE 256
+#define BUFFER_SIZE 512
 #define MAX_SYMBOLS 100
 #define SPACES 2
 
@@ -1803,11 +1806,8 @@ enum TypeKind parse_datatype(struct Parser *p) {
 }
 
 // float_literal -> digits "." digits
-
 // integer_literal -> digits
-
 // digits -> integer_literal | float_literal
-
 // NUMBER -> digits
 struct ASTNode * parse_number(struct Parser *p) {
   if (p->has_error) {
@@ -2442,9 +2442,10 @@ struct ASTNode * parse_program(struct Parser *p) {
 }
 
 int main(void) {
-  struct Token tokens[100];
+  struct Token tokens[BUFFER_SIZE];
   int token_count = 0;
 
+  /*
   char *code = "x=123+45*2;";
   code="x=1+2+3;";
   code="x=1-2;";
@@ -2534,12 +2535,36 @@ int main(void) {
   code="print(2+3.5); print(2 < 3.5); print(3.5 == 3); print(8/2.0); print(8.0/2);";
   code="if (0) { if (0) print(1); else { int y=0; print(4.34/y);} } else print(2 + 5);";
   code="if (0) print(1); else print(9); if (3.14) print(2); else print(0); if (-2.0) print(2); else print(0); if (0.0) print(0); else print(8);";
+  */
 
-  printf("Input: %s\n", code);
+  struct stat istat;
+  int ret = stat("./test.c", &istat);
+  if (ret < 0) {
+    perror("stat");
+    exit(ret);
+  }
+  char *icode = (char *)malloc(istat.st_size+1);
+  if (icode == NULL) {
+    printf("error: could not allocate buffer to read input file\n");
+    exit(-1);
+  }
+  int ifd = open("./test.c", O_RDONLY);
+  if (ifd < 0) {
+    perror("open");
+    exit(-1);
+  }
+  ssize_t rfd = read(ifd, (char *)icode, istat.st_size);
+  if (rfd < 0) {
+    perror("read");
+    exit(-1);
+  }
+  icode[istat.st_size+1] = '\0';
+
+  printf("Input: %s\n", icode);
 
   // Lexer or Tokenizer
   printf("\n\n--> Tokenizer PHASE: Start\n");
-  int result = tokenize(code, tokens, &token_count);
+  int result = tokenize(icode, tokens, &token_count);
 
   printf("--> Print tokens--\n");
   for (int i = 0; i < token_count; i++) {

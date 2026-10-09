@@ -1,0 +1,553 @@
+Input: int x = 10;
+float y = 3.5;
+print(x);
+print(y);
+print(x + 2);
+print(y + 1.5);
+print(x + y);
+print(x > 5);
+print(y == 3.5);
+
+{
+  int x = 2;
+  float y = 4.0;
+  print(x);
+  print(y);
+  print(x + y);
+  print(x < 5);
+}
+
+print(x);
+print(y);
+
+if (x > 5) {
+  print(100);
+} else {
+  print(200);
+}
+
+if (0) {
+  print(1);
+} else {
+  print(2);
+}
+
+if (1) {
+  if (0) {
+    print(3);
+  } else {
+    print(4.5 + 0.5);
+  }
+} else {
+  print(5);
+}
+
+x = x + 1;
+y = y + 2.0;
+print(x);
+print(y);
+
+
+
+--> Tokenizer PHASE: Start
+--> Print tokens--
+INT: int
+IDENTIFIER: x
+=: =
+NUMBER: 10
+;: ;
+FLOAT: float
+IDENTIFIER: y
+=: =
+NUMBER: 3.5
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: y
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
++: +
+NUMBER: 2
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: y
++: +
+NUMBER: 1.5
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
++: +
+IDENTIFIER: y
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
+>: >
+NUMBER: 5
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: y
+==: ==
+NUMBER: 3.5
+): )
+;: ;
+LBRACE: {
+INT: int
+IDENTIFIER: x
+=: =
+NUMBER: 2
+;: ;
+FLOAT: float
+IDENTIFIER: y
+=: =
+NUMBER: 4.0
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: y
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
++: +
+IDENTIFIER: y
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
+<: <
+NUMBER: 5
+): )
+;: ;
+RBRACE: }
+PRINT: print
+(: (
+IDENTIFIER: x
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: y
+): )
+;: ;
+IF: if
+(: (
+IDENTIFIER: x
+>: >
+NUMBER: 5
+): )
+LBRACE: {
+PRINT: print
+(: (
+NUMBER: 100
+): )
+;: ;
+RBRACE: }
+ELSE: else
+LBRACE: {
+PRINT: print
+(: (
+NUMBER: 200
+): )
+;: ;
+RBRACE: }
+IF: if
+(: (
+NUMBER: 0
+): )
+LBRACE: {
+PRINT: print
+(: (
+NUMBER: 1
+): )
+;: ;
+RBRACE: }
+ELSE: else
+LBRACE: {
+PRINT: print
+(: (
+NUMBER: 2
+): )
+;: ;
+RBRACE: }
+IF: if
+(: (
+NUMBER: 1
+): )
+LBRACE: {
+IF: if
+(: (
+NUMBER: 0
+): )
+LBRACE: {
+PRINT: print
+(: (
+NUMBER: 3
+): )
+;: ;
+RBRACE: }
+ELSE: else
+LBRACE: {
+PRINT: print
+(: (
+NUMBER: 4.5
++: +
+NUMBER: 0.5
+): )
+;: ;
+RBRACE: }
+RBRACE: }
+ELSE: else
+LBRACE: {
+PRINT: print
+(: (
+NUMBER: 5
+): )
+;: ;
+RBRACE: }
+IDENTIFIER: x
+=: =
+IDENTIFIER: x
++: +
+NUMBER: 1
+;: ;
+IDENTIFIER: y
+=: =
+IDENTIFIER: y
++: +
+NUMBER: 2.0
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: x
+): )
+;: ;
+PRINT: print
+(: (
+IDENTIFIER: y
+): )
+;: ;
+EOF
+--> Tokenizer PHASE: PASS
+
+
+--> PARSING PHASE: Start
+--> PARSING PHASE: PASS
+
+Stopped at: EOF
+
+Print AST Tree after PARSING PHASE:
+ PROGRAM UNUSED
+   DECL UNUSED
+     IDENTIFIER x UNUSED
+     NUMBER 10 INT
+   DECL UNUSED
+     IDENTIFIER y UNUSED
+     NUMBER 3.500000 FLOAT
+   PRINT UNUSED
+     IDENTIFIER x UNUSED
+   PRINT UNUSED
+     IDENTIFIER y UNUSED
+   PRINT UNUSED
+     BINARY + UNUSED
+       IDENTIFIER x UNUSED
+       NUMBER 2 INT
+   PRINT UNUSED
+     BINARY + UNUSED
+       IDENTIFIER y UNUSED
+       NUMBER 1.500000 FLOAT
+   PRINT UNUSED
+     BINARY + UNUSED
+       IDENTIFIER x UNUSED
+       IDENTIFIER y UNUSED
+   PRINT UNUSED
+     BINARY > UNUSED
+       IDENTIFIER x UNUSED
+       NUMBER 5 INT
+   PRINT UNUSED
+     BINARY == UNUSED
+       IDENTIFIER y UNUSED
+       NUMBER 3.500000 FLOAT
+   BLOCK UNUSED
+     DECL UNUSED
+       IDENTIFIER x UNUSED
+       NUMBER 2 INT
+     DECL UNUSED
+       IDENTIFIER y UNUSED
+       NUMBER 4.000000 FLOAT
+     PRINT UNUSED
+       IDENTIFIER x UNUSED
+     PRINT UNUSED
+       IDENTIFIER y UNUSED
+     PRINT UNUSED
+       BINARY + UNUSED
+         IDENTIFIER x UNUSED
+         IDENTIFIER y UNUSED
+     PRINT UNUSED
+       BINARY < UNUSED
+         IDENTIFIER x UNUSED
+         NUMBER 5 INT
+   PRINT UNUSED
+     IDENTIFIER x UNUSED
+   PRINT UNUSED
+     IDENTIFIER y UNUSED
+   IF UNUSED
+     CONDITION 
+       BINARY > UNUSED
+         IDENTIFIER x UNUSED
+         NUMBER 5 INT
+     THEN 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 100 INT
+     ELSE 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 200 INT
+   IF UNUSED
+     CONDITION 
+       NUMBER 0 INT
+     THEN 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 1 INT
+     ELSE 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 2 INT
+   IF UNUSED
+     CONDITION 
+       NUMBER 1 INT
+     THEN 
+       BLOCK UNUSED
+         IF UNUSED
+           CONDITION 
+             NUMBER 0 INT
+           THEN 
+             BLOCK UNUSED
+               PRINT UNUSED
+                 NUMBER 3 INT
+           ELSE 
+             BLOCK UNUSED
+               PRINT UNUSED
+                 BINARY + UNUSED
+                   NUMBER 4.500000 FLOAT
+                   NUMBER 0.500000 FLOAT
+     ELSE 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 5 INT
+   ASSIGNMENT UNUSED
+     IDENTIFIER x UNUSED
+     BINARY + UNUSED
+       IDENTIFIER x UNUSED
+       NUMBER 1 INT
+   ASSIGNMENT UNUSED
+     IDENTIFIER y UNUSED
+     BINARY + UNUSED
+       IDENTIFIER y UNUSED
+       NUMBER 2.000000 FLOAT
+   PRINT UNUSED
+     IDENTIFIER x UNUSED
+   PRINT UNUSED
+     IDENTIFIER y UNUSED
+
+
+--> SEMANTIC CHECK PHASE: Start
+Initialize symbol table for Semantic check
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+[0] name=x, type=INT value=0
+[1] name=y, type=FLOAT value=0.000000
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Local symbol table after analyzing statement.
+--- print Symbol Table ---
+Global symbol table after semantic phase
+--- print Symbol Table ---
+[0] name=x, type=INT value=0
+[1] name=y, type=FLOAT value=0.000000
+
+Print AST Tree after SEMANTIC CHECK PHASE:
+ PROGRAM UNUSED
+   DECL INT
+     IDENTIFIER x INT
+     NUMBER 10 INT
+   DECL FLOAT
+     IDENTIFIER y FLOAT
+     NUMBER 3.500000 FLOAT
+   PRINT UNUSED
+     IDENTIFIER x INT
+   PRINT UNUSED
+     IDENTIFIER y FLOAT
+   PRINT UNUSED
+     BINARY + INT
+       IDENTIFIER x INT
+       NUMBER 2 INT
+   PRINT UNUSED
+     BINARY + FLOAT
+       IDENTIFIER y FLOAT
+       NUMBER 1.500000 FLOAT
+   PRINT UNUSED
+     BINARY + FLOAT
+       IDENTIFIER x INT
+       IDENTIFIER y FLOAT
+   PRINT UNUSED
+     BINARY > INT
+       IDENTIFIER x INT
+       NUMBER 5 INT
+   PRINT UNUSED
+     BINARY == INT
+       IDENTIFIER y FLOAT
+       NUMBER 3.500000 FLOAT
+   BLOCK UNUSED
+     DECL INT
+       IDENTIFIER x INT
+       NUMBER 2 INT
+     DECL FLOAT
+       IDENTIFIER y FLOAT
+       NUMBER 4.000000 FLOAT
+     PRINT UNUSED
+       IDENTIFIER x INT
+     PRINT UNUSED
+       IDENTIFIER y FLOAT
+     PRINT UNUSED
+       BINARY + FLOAT
+         IDENTIFIER x INT
+         IDENTIFIER y FLOAT
+     PRINT UNUSED
+       BINARY < INT
+         IDENTIFIER x INT
+         NUMBER 5 INT
+   PRINT UNUSED
+     IDENTIFIER x INT
+   PRINT UNUSED
+     IDENTIFIER y FLOAT
+   IF UNUSED
+     CONDITION 
+       BINARY > INT
+         IDENTIFIER x INT
+         NUMBER 5 INT
+     THEN 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 100 INT
+     ELSE 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 200 INT
+   IF UNUSED
+     CONDITION 
+       NUMBER 0 INT
+     THEN 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 1 INT
+     ELSE 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 2 INT
+   IF UNUSED
+     CONDITION 
+       NUMBER 1 INT
+     THEN 
+       BLOCK UNUSED
+         IF UNUSED
+           CONDITION 
+             NUMBER 0 INT
+           THEN 
+             BLOCK UNUSED
+               PRINT UNUSED
+                 NUMBER 3 INT
+           ELSE 
+             BLOCK UNUSED
+               PRINT UNUSED
+                 BINARY + FLOAT
+                   NUMBER 4.500000 FLOAT
+                   NUMBER 0.500000 FLOAT
+     ELSE 
+       BLOCK UNUSED
+         PRINT UNUSED
+           NUMBER 5 INT
+   ASSIGNMENT INT
+     IDENTIFIER x INT
+     BINARY + INT
+       IDENTIFIER x INT
+       NUMBER 1 INT
+   ASSIGNMENT FLOAT
+     IDENTIFIER y FLOAT
+     BINARY + FLOAT
+       IDENTIFIER y FLOAT
+       NUMBER 2.000000 FLOAT
+   PRINT UNUSED
+     IDENTIFIER x INT
+   PRINT UNUSED
+     IDENTIFIER y FLOAT
+--> SEMANTIC CHECK PHASE: PASS
+
+
+--> EVALUATION CHECK PHASE: Start
+Initialize symbol table for Evaluation check
+--- print Symbol Table ---
+declared x with initial value 10
+declared y with initial value 3.500000
+10
+3.500000
+12
+5.000000
+13.500000
+1
+1
+declared x with initial value 2
+declared y with initial value 4.000000
+2
+4.000000
+6.000000
+1
+10
+3.500000
+100
+2
+5.000000
+11
+5.500000
+Global symbol table after evaluation phase
+--- print Symbol Table ---
+[0] name=x, type=INT value=11
+[1] name=y, type=FLOAT value=5.500000
+--> EVALUATION CHECK PHASE: PASS
