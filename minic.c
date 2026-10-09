@@ -64,6 +64,7 @@ enum TokenKind {
   TOKEN_RBRACE,
   TOKEN_IF,
   TOKEN_ELSE,
+  TOKEN_WHILE,
   TOKEN_INT,
   TOKEN_FLOAT,
   TOKEN_SEMICOLON,
@@ -81,6 +82,7 @@ enum ASTNodeKind {
   AST_ASSIGNMENT,
   AST_PRINT,
   AST_IF,
+  AST_WHILE,
   AST_BLOCK,
   AST_PROGRAM,
   AST_UNKNOWN
@@ -118,6 +120,8 @@ struct ASTNode {
   struct ASTNode * right;
   struct ASTNode * then_branch;
   struct ASTNode * else_branch;
+  struct ASTNode * condition;
+  struct ASTNode * body;
   struct ASTNode * statements[BUFFER_SIZE];
   int    statement_count;
 };
@@ -149,6 +153,7 @@ struct ASTNode * createDeclarationNode(enum TypeKind declaredType, struct ASTNod
 struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode);
 struct ASTNode * createPrintNode(struct ASTNode * expr);
 struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt, struct ASTNode * else_stmt);
+struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
 struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
 
@@ -172,7 +177,7 @@ enum TypeKind token_to_typekind(enum TokenKind type) {
   return TYPE_ERROR;
 }
 
-char *node_type_name(enum ASTNodeKind kind) {
+char *ast_node_type_name(enum ASTNodeKind kind) {
   switch (kind) {
     case AST_NUMBER:
       return "NUMBER";
@@ -192,6 +197,8 @@ char *node_type_name(enum ASTNodeKind kind) {
       return "BLOCK";
     case AST_IF:
       return "IF";
+    case AST_WHILE:
+      return "WHILE";
     case AST_PROGRAM:
       return "PROGRAM";
   }
@@ -241,9 +248,9 @@ const char *token_type_name(enum TokenKind type) {
     case TOKEN_BANG_EQUAL:
       return "!=";
     case TOKEN_LPAREN:
-      return "(";
+      return "LPAREN";
     case TOKEN_RPAREN:
-      return ")";
+      return "RPAREN";
     case TOKEN_LBRACE:
       return "LBRACE";
     case TOKEN_RBRACE:
@@ -256,8 +263,10 @@ const char *token_type_name(enum TokenKind type) {
       return "IF";
     case TOKEN_ELSE:
       return "ELSE";
+    case TOKEN_WHILE:
+      return "WHILE";
     case TOKEN_SEMICOLON:
-      return ";";
+      return "SEMICOLON";
     case TOKEN_UNKNOWN:
       return "UNKNOWN";
     case TOKEN_EOF:
@@ -319,23 +328,23 @@ void print_ast_tree(struct ASTNode *node, int depth) {
   }
 
   if (t->kind == AST_PROGRAM) {
-    printf("%s %s\n", node_type_name(t->kind), typekind_type_name(t->type_kind));
+    printf("%s %s\n", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
     for (int c=0; c < t->statement_count; c++) {
       print_ast_tree(t->statements[c], depth+1);
     }
     return;
   } else if (t->kind == AST_DECLARATION) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_BLOCK) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
     for (int c=0; c < t->statement_count; c++) {
       print_ast_tree(t->statements[c], depth+1);
     }
   } else if (t->kind == AST_IF) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
-    if (t->left != NULL) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
+    if (t->condition != NULL) {
       printf("%*s %s \n", SPACES*(depth+1), " ", "CONDITION");
-      print_ast_tree(t->left, depth+2);
+      print_ast_tree(t->condition, depth+2);
     }
 
     if (t->then_branch != NULL) {
@@ -348,22 +357,32 @@ void print_ast_tree(struct ASTNode *node, int depth) {
       print_ast_tree(t->else_branch, depth+2);
     }
     return;
+  } else if (t->kind == AST_WHILE) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
+    if (t->condition != NULL) {
+      printf("%*s %s \n", SPACES*(depth+1), " ", "CONDITION");
+      print_ast_tree(t->condition, depth+2);
+    }
+    if (t->body != NULL) {
+      printf("%*s %s \n", SPACES*(depth+1), " ", "BODY");
+      print_ast_tree(t->body, depth+2);
+    }
   } else if (t->kind == AST_PRINT) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_ASSIGNMENT) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_NUMBER) {
     if (t->type_kind == TYPE_INT) {
-      printf("%*s %s %d %s\n", SPACES*depth, " ", node_type_name(t->kind), t->number_value, typekind_type_name(t->type_kind));
+      printf("%*s %s %d %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), t->number_value, typekind_type_name(t->type_kind));
     } else  if (t->type_kind == TYPE_FLOAT) {
-      printf("%*s %s %f %s\n", SPACES*depth, " ", node_type_name(t->kind), t->float_number_value, typekind_type_name(t->type_kind));
+      printf("%*s %s %f %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), t->float_number_value, typekind_type_name(t->type_kind));
     }
   } else if (t->kind == AST_IDENTIFIER) {
-    printf("%*s %s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), t->identifier_name, typekind_type_name(t->type_kind));
+    printf("%*s %s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), t->identifier_name, typekind_type_name(t->type_kind));
   } else if (t->kind == AST_BINARY) {
-    printf("%*s %s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), token_type_name(t->operator_kind), typekind_type_name(t->type_kind));
+    printf("%*s %s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), token_type_name(t->operator_kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_UNARY) {
-    printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else {
     printf("%*s UNKNOWN AST NODE\n", SPACES*depth, " ");
   }
@@ -545,6 +564,8 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
         add_token(tokens, token_count, TOKEN_IF, code + start, idx - start);
       } else if (strncmp(code+start, "else", idx-start) == 0) {
         add_token(tokens, token_count, TOKEN_ELSE, code + start, idx - start);
+      } else if (strncmp(code+start, "while", idx-start) == 0) {
+        add_token(tokens, token_count, TOKEN_WHILE, code + start, idx - start);
       } else if (strncmp(code+start, "print", idx-start) == 0) {
         // internal print() funtion/keyword
         add_token(tokens, token_count, TOKEN_PRINT, code + start, idx - start);
@@ -606,6 +627,8 @@ struct ASTNode * createASTNode() {
   node->right = NULL;
   node->then_branch = NULL;
   node->else_branch = NULL;
+  node->condition = NULL;
+  node->body = NULL;
   node->identifier_name[0] = '\0';
   node->operator_kind = TOKEN_UNKNOWN;
   node->type_kind = TYPE_UNUSED;
@@ -731,6 +754,19 @@ struct ASTNode * createBlockNode() {
   return node;
 }
 
+struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("error: couldn't allocate memory for while ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_WHILE;
+  node->condition = expr;   // condition
+  node->body = body_stmt;
+  return node;
+}
+
 struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt, struct ASTNode * else_stmt) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
@@ -739,7 +775,7 @@ struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt,
   }
 
   node->kind = AST_IF;
-  node->left = expr;   // condition. We will add may be "expr" pointer later on
+  node->condition = expr;   // condition. We will add may be "expr" pointer later on
   node->then_branch = then_stmt;
   node->else_branch = else_stmt;
   return node;
@@ -1215,12 +1251,12 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     //print_symbol_table(&local_semantic_table);
     return SUCCESS;
   } else if (node->kind == AST_IF) {
-    if (node->left == NULL) {
+    if (node->condition == NULL) {
       return FAIL;
     }
 
     struct Value expr_value;
-    int ret = eval_expression(node->left, table, &expr_value);
+    int ret = eval_expression(node->condition, table, &expr_value);
     if (ret == FAIL) {
       return FAIL;
     }
@@ -1244,6 +1280,38 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
       }
     }
 
+    return SUCCESS;
+  } else if (node->kind == AST_WHILE) {
+    if (node->condition == NULL) {
+      return FAIL;
+    }
+
+    if (node->body == NULL) {
+      return FAIL;
+    }
+
+    while(1) {
+      struct Value expr_value;
+      int ret = eval_expression(node->condition, table, &expr_value);
+      if (ret == FAIL) {
+        return FAIL;
+      }
+
+      if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
+        printf("error: condition type must be numeric\n");
+        return FAIL;
+      }
+
+      if ((expr_value.type == TYPE_INT && expr_value.int_value == 0)
+        || (expr_value.type == TYPE_FLOAT && expr_value.float_value == 0.0)) {
+        break;
+      }
+
+      ret = eval_statement(node->body, table);
+      if (ret == FAIL) {
+        return FAIL;
+      }
+    }
     return SUCCESS;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
@@ -1401,7 +1469,7 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
     return operand_type;
   }
 
-  printf("error: unsupported expression for type check analysis: %s\n", node_type_name(node->kind));
+  printf("error: unsupported expression for type check analysis: %s\n", ast_node_type_name(node->kind));
   return TYPE_ERROR;
 }
 
@@ -1528,7 +1596,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     return SUCCESS;
   }
 
-  printf("error: unsupported expression ASTNode: %s\n", node_type_name(node->kind));
+  printf("error: unsupported expression ASTNode: %s\n", ast_node_type_name(node->kind));
   return FAIL;
 }
 
@@ -1664,19 +1732,19 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     print_symbol_table(&local_semantic_table);
     return SUCCESS;
   } else if (node->kind == AST_IF) {
-    if (node->left == NULL) {
+    if (node->condition == NULL) {
       printf("error: if statement requires an expression to evaluate\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    int ret = analyze_expression(node->left, table);
+    int ret = analyze_expression(node->condition, table);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    enum TypeKind lhs_expr_type = analyze_expression_type(node->left, table);
+    enum TypeKind lhs_expr_type = analyze_expression_type(node->condition, table);
     if (lhs_expr_type == TYPE_ERROR) {
       printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
       node->type_kind = TYPE_ERROR;
@@ -1684,7 +1752,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     }
 
     if (lhs_expr_type != TYPE_INT && lhs_expr_type != TYPE_FLOAT) {
-      printf("error: condition expression only supports int and float types\n");
+      printf("error: condition expression only supports numeric types but returned: %s\n", typekind_type_name(lhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -1711,6 +1779,45 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
 
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
+  } else if (node->kind == AST_WHILE) {
+    if (node->condition == NULL) {
+      printf("error: while requires an expression to evaluate\n");
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    int ret = analyze_expression(node->condition, table);
+    if (ret == FAIL) {
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    enum TypeKind lhs_expr_type = analyze_expression_type(node->condition, table);
+    if (lhs_expr_type == TYPE_ERROR) {
+      printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    if (lhs_expr_type != TYPE_INT && lhs_expr_type != TYPE_FLOAT) {
+      printf("error: condition type must be numeric, but returned: %s\n", typekind_type_name(lhs_expr_type));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    if (node->body == NULL) {
+      printf("error: while loop missing body.\n");
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    ret = analyze_statement(node->body, table);
+    if (ret == FAIL) {
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+    node->type_kind = TYPE_UNUSED;
+    return SUCCESS;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
       printf("error: print statement requires an expression\n");
@@ -1735,7 +1842,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     return SUCCESS;
   }
 
-  printf("error: unsupported statement ASTNode: %s\n", node_type_name(node->kind));
+  printf("error: unsupported statement ASTNode: %s\n", ast_node_type_name(node->kind));
   return FAIL;
 }
 
@@ -2301,7 +2408,68 @@ struct ASTNode * parse_block(struct Parser *p) {
   return block;
 }
 
-// if_statement -> if ( expr ) statment else statement
+// while_statement -> while ( expr ) statement
+struct ASTNode * parse_while_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  // consume WHILE token
+  expect_token(p, TOKEN_WHILE);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  // check and consume opening parenthesis
+  parse_lparen(p);
+  if ( p->has_error ) {
+    printf("error: expected '(' after WHILE\n");
+    return NULL;
+  }
+
+  struct ASTNode * expr = parse_expression(p);
+  if (expr == NULL) {
+    printf("error: missing expression in WHILE statement\n");
+    p->has_error = 1;
+    return NULL;
+  }
+
+  parse_rparen(p); // This consumes ')', error otherwise
+  if ( p->has_error ) {
+    printf("error: missing closing parenthesis in WHILE statement\n");
+    free(expr);
+   return NULL;
+  }
+
+  // now parse statements. Empty statement are not allowed
+  struct ASTNode * body_stmt = parse_statement(p);
+  if (body_stmt == NULL) {
+    printf("error: missing statement after WHILE condition.\n");
+    free(expr);
+    p->has_error = 1;
+    return NULL;
+  }
+
+  // no declaration allowed as the directy then body
+  if (body_stmt->kind == AST_DECLARATION) {
+    printf("error: direct declaration is not allowed as body; use a block\n");
+    free(expr);
+    free(body_stmt);
+    p->has_error = 1;
+    return NULL;
+  }
+
+  struct ASTNode * node = createWhileNode(expr, body_stmt);
+  if (node == NULL) {
+    free(expr);
+    free(body_stmt);
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
+// if_statement -> if ( expr ) statement else statement
 //               | if ( expr ) statement
 struct ASTNode * parse_if_stmt(struct Parser *p) {
   if (p->has_error) {
@@ -2408,6 +2576,8 @@ struct ASTNode * parse_statement(struct Parser *p) {
     node = parse_block(p);
   } else if (is_current_token(p, TOKEN_IF)) {
     node = parse_if_stmt(p);
+  } else if (is_current_token(p, TOKEN_WHILE)) {
+    node = parse_while_stmt(p);
   } else {
     node = parse_assignment(p);
   }
