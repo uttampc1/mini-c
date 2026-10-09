@@ -67,3 +67,11 @@ x = x + 1;
 y = y + 2.0;
 print(x);
 print(y);
+if (0) 
+  print(1);
+else if (0) {
+  print(2);
+  print(1);
+}
+else
+  print(4);
