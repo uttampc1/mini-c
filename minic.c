@@ -62,6 +62,7 @@ enum TokenKind {
   TOKEN_IF,
   TOKEN_ELSE,
   TOKEN_INT,
+  TOKEN_FLOAT,
   TOKEN_SEMICOLON,
   TOKEN_PRINT,
   TOKEN_UNKNOWN,
@@ -84,6 +85,7 @@ enum ASTNodeKind {
 
 enum TypeKind {
   TYPE_INT,
+  TYPE_FLOAT,
   TYPE_UNKNOWN,
   TYPE_UNUSED,
   TYPE_ERROR
@@ -104,6 +106,7 @@ struct Parser {
 struct ASTNode {
   enum   ASTNodeKind kind;
   int    number_value;
+  double float_number_value;
   char   identifier_name[BUFFER_SIZE];
   enum   TokenKind operator_kind;
   enum   TypeKind  type_kind;
@@ -116,10 +119,16 @@ struct ASTNode {
   int    statement_count;
 };
 
+struct Value {
+  enum   TypeKind type;
+  int    int_value;
+  double float_value;
+};
+
 struct Symbol {
   enum TypeKind type;
   char *name;
-  int value;
+  struct Value value;
 };
 
 struct SymbolTable {
@@ -130,10 +139,10 @@ struct SymbolTable {
 
 struct ASTNode * createASTNode();
 struct ASTNode * createUnaryNode(enum TokenKind type);
-struct ASTNode * createNumberNode(int value);
+struct ASTNode * createNumberNode(enum TypeKind type, char * value);
 struct ASTNode * createIdentifierNode(char *name);
 struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode, struct ASTNode * rightNode);
-struct ASTNode * createDeclarationNode(enum TokenKind type, struct ASTNode *ident, struct ASTNode *valueNode);
+struct ASTNode * createDeclarationNode(enum TypeKind declaredType, struct ASTNode *ident, struct ASTNode *valueNode);
 struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode);
 struct ASTNode * createPrintNode(struct ASTNode * expr);
 struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt, struct ASTNode * else_stmt);
@@ -151,6 +160,7 @@ struct ASTNode * parse_term(struct Parser *p);
 
 void add_statement_to_program(struct ASTNode * program, struct ASTNode * statement);
 void add_statement_to_block(struct ASTNode * node, struct ASTNode * statement);
+int is_assignment_compatible(enum TypeKind target_type, enum TypeKind source_type);
 
 enum TypeKind token_to_typekind(enum TokenKind type) {
   if (type == TOKEN_INT) {
@@ -190,6 +200,8 @@ const char *typekind_type_name(enum TypeKind type) {
   switch (type) {
     case TYPE_INT:
       return "INT";
+    case TYPE_FLOAT:
+      return "FLOAT";
     case TYPE_UNKNOWN:
       return "UNKNOWN";
     case TYPE_UNUSED:
@@ -235,6 +247,8 @@ const char *token_type_name(enum TokenKind type) {
       return "RBRACE";
     case TOKEN_INT:
       return "INT";
+    case TOKEN_FLOAT:
+      return "FLOAT";
     case TOKEN_IF:
       return "IF";
     case TOKEN_ELSE:
@@ -281,8 +295,14 @@ void print_symbol_table(struct SymbolTable *table) {
   }
 
   for (int s = 0; s < t->count; s++) {
-    printf("[%d] name=%s, type=%s, value=%d\n",
-      s, t->symbols[s].name, typekind_type_name(t->symbols[s].type), t->symbols[s].value);
+    printf("[%d] name=%s, type=%s ", s, t->symbols[s].name, typekind_type_name(t->symbols[s].type));
+    if (t->symbols[s].value.type == TYPE_INT) {
+      printf("value=%d\n", t->symbols[s].value.int_value);
+    } else if (t->symbols[s].value.type == TYPE_FLOAT) {
+      printf("value=%f\n", t->symbols[s].value.float_value);
+    } else {
+      printf("\n");
+    }
   }
 
   return;
@@ -330,7 +350,11 @@ void print_ast_tree(struct ASTNode *node, int depth) {
   } else if (t->kind == AST_ASSIGNMENT) {
     printf("%*s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_NUMBER) {
-    printf("%*s %s %d %s\n", SPACES*depth, " ", node_type_name(t->kind), t->number_value, typekind_type_name(t->type_kind));
+    if (t->type_kind == TYPE_INT) {
+      printf("%*s %s %d %s\n", SPACES*depth, " ", node_type_name(t->kind), t->number_value, typekind_type_name(t->type_kind));
+    } else  if (t->type_kind == TYPE_FLOAT) {
+      printf("%*s %s %f %s\n", SPACES*depth, " ", node_type_name(t->kind), t->float_number_value, typekind_type_name(t->type_kind));
+    }
   } else if (t->kind == AST_IDENTIFIER) {
     printf("%*s %s %s %s\n", SPACES*depth, " ", node_type_name(t->kind), t->identifier_name, typekind_type_name(t->type_kind));
   } else if (t->kind == AST_BINARY) {
@@ -420,6 +444,7 @@ int scan_identifier(char *code, int start) {
   while(is_alnum(code[i])) {
     i++;
   }
+
   return i;
 }
 
@@ -428,6 +453,14 @@ int scan_number(char *code, int start) {
 
   while (is_digit(code[i])) {
     i++;
+  }
+
+  if (code[i] == '.') {
+    i++;
+
+    while (is_digit(code[i])) {
+      i++;
+    }
   }
 
   return i;
@@ -503,6 +536,8 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
       // keywords
       if (strncmp(code+start, "int", idx-start) == 0) {
         add_token(tokens, token_count, TOKEN_INT, code + start, idx - start);
+      } else if (strncmp(code+start, "float", idx-start) == 0) {
+        add_token(tokens, token_count, TOKEN_FLOAT, code + start, idx - start);
       } else if (strncmp(code+start, "if", idx-start) == 0) {
         add_token(tokens, token_count, TOKEN_IF, code + start, idx - start);
       } else if (strncmp(code+start, "else", idx-start) == 0) {
@@ -563,6 +598,7 @@ struct ASTNode * createASTNode() {
 
   node->kind = AST_UNKNOWN;
   node->number_value = -9999;
+  node->float_number_value = -9999.9999;
   node->left = NULL;
   node->right = NULL;
   node->then_branch = NULL;
@@ -591,7 +627,7 @@ struct ASTNode * createUnaryNode(enum TokenKind type) {
   return node;
 }
 
-struct ASTNode * createNumberNode(int value) {
+struct ASTNode * createNumberNode(enum TypeKind type, char * value) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
     printf("error: couldn't allocate memory for number ASTNode\n");
@@ -599,8 +635,15 @@ struct ASTNode * createNumberNode(int value) {
   }
 
   node->kind = AST_NUMBER;
-  node->number_value = value;
-  node->type_kind = TYPE_INT;
+  if (type == TYPE_INT) {
+    node->type_kind = TYPE_INT;
+    //node->number_value = strtol(value, NULL, 10);
+    node->number_value = atoi(value);
+  } else  if (type == TYPE_FLOAT) {
+    node->type_kind = TYPE_FLOAT;
+    //node->float_number_value = strtod(value, NULL);
+    node->float_number_value = atof(value);
+  }
   return node;
 }
 
@@ -633,7 +676,7 @@ struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode
   return node;
 }
 
-struct ASTNode * createDeclarationNode(enum TokenKind type, struct ASTNode *ident, struct ASTNode * valueNode) {
+struct ASTNode * createDeclarationNode(enum TypeKind declaredType, struct ASTNode *ident, struct ASTNode * valueNode) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
     printf("error: couldn't allocate memory for identifier ASTNode\n");
@@ -643,7 +686,7 @@ struct ASTNode * createDeclarationNode(enum TokenKind type, struct ASTNode *iden
   node->kind = AST_DECLARATION;
   node->left = ident;
   node->right = valueNode;
-  node->declared_variable_type = token_to_typekind(type);
+  node->declared_variable_type = declaredType;
   return node;
 }
 
@@ -796,7 +839,7 @@ struct Symbol * lookup_symbol_visible(struct SymbolTable *table, char *name) {
 
 // add symbol if symbol doesn't exists in the table
 // update value if symbol exists in the table
-void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, int value) {
+void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, struct Value *value) {
   //printf("Add [%s] symbol to the table\n", name);
   if (table == NULL) {
     printf("Symbol table pointer in null/invalid\n");
@@ -807,7 +850,7 @@ void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, int
   for (int i = 0; i < table->count; i++) {
     symbol = &table->symbols[i];
     if (strcmp(symbol->name, name) == 0) {
-      symbol->value = value;
+      symbol->value = *value;
       return;
     }
   }
@@ -831,90 +874,221 @@ void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, int
 
   table->symbols[table->count].type = type;
   table->symbols[table->count].name = new_symbol;
-  table->symbols[table->count].value = value;
+  table->symbols[table->count].value = *value;
   table->count++;
 
   return;
 }
 
 // Evaluator
-int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_value) {
-  struct ASTNode * node = root;
+int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Value *out_value) {
 
   if (node == NULL) {
     return FAIL;
   }
 
   if (node->kind == AST_NUMBER) {
-    *out_value = node->number_value;
+    out_value->type = node->type_kind;
+    if (node->type_kind == TYPE_INT) {
+      out_value->int_value = node->number_value;
+    } else if (node->type_kind == TYPE_FLOAT) {
+      out_value->float_value = node->float_number_value;
+    } else {
+      return FAIL;
+    }
     return SUCCESS;
   } else if (node->kind == AST_UNARY) {
-    int result;
+    struct Value result;
     int ret = eval_expression(node->left, table, &result);
     if (ret == FAIL) {
       return FAIL;
     }
+
+    out_value->type = result.type;
+
     if (node->operator_kind == TOKEN_MINUS) {
-      *out_value = -(result);
+      if (result.type == TYPE_INT) {
+        out_value->int_value = -(result.int_value);
+      } else if (result.type == TYPE_FLOAT) {
+        out_value->float_value = -(result.float_value);
+      } else {
+        return FAIL;
+      }
     } else if (node->operator_kind == TOKEN_PLUS) {
-      *out_value = result;
+      if (result.type == TYPE_INT) {
+        out_value->int_value = result.int_value;
+      } else if (result.type == TYPE_FLOAT) {
+        out_value->float_value = result.float_value;
+      } else {
+        return FAIL;
+      }
     } else {
       printf("error: unsupported unary operator\n");
       return FAIL;
     }
     return SUCCESS;
   } else if (node->kind == AST_BINARY) {
-    int leftNum;
+    struct Value leftNum;
     int ret = eval_expression(node->left, table, &leftNum);
     if (ret == FAIL) {
       return FAIL;
     }
-    int rightNum;
+    struct Value rightNum;
     ret = eval_expression(node->right, table, &rightNum);
     if (ret == FAIL) {
       return FAIL;
     }
 
-    if (node->operator_kind == TOKEN_PLUS) {
-      *out_value = leftNum + rightNum;
-    } else if (node->operator_kind == TOKEN_MINUS) {
-      *out_value = leftNum - rightNum;
-    } else if (node->operator_kind == TOKEN_STAR) {
-      *out_value = leftNum * rightNum;
-    } else if (node->operator_kind == TOKEN_SLASH) {
-      if (rightNum == 0) {
-        printf("error: division by zero.\n");
+    // int op int -> int
+    // float op float -> float
+    // float op int OR int op float -> promote to float
+    enum TokenKind operator_kind =  node->operator_kind;
+
+    if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER
+      || operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL) {
+      out_value->type = TYPE_INT;
+    }
+
+    if (leftNum.type == TYPE_INT && rightNum.type == TYPE_INT) {
+      out_value->type = TYPE_INT;
+      out_value->float_value = 0.0;
+      if (operator_kind == TOKEN_PLUS) {
+        out_value->int_value = leftNum.int_value + rightNum.int_value;
+      } else if (operator_kind == TOKEN_MINUS) {
+        out_value->int_value = leftNum.int_value - rightNum.int_value;
+      } else if (operator_kind == TOKEN_STAR) {
+        out_value->int_value = leftNum.int_value * rightNum.int_value;
+      } else if (operator_kind == TOKEN_SLASH) {
+        if (rightNum.int_value == 0) {
+          printf("error: division by zero.\n");
+          return FAIL;
+        }
+        out_value->int_value = leftNum.int_value / rightNum.int_value;
+      } else if (operator_kind == TOKEN_LESS) {
+        out_value->int_value = (leftNum.int_value < rightNum.int_value);
+      } else if (operator_kind == TOKEN_GREATER) {
+        out_value->int_value = (leftNum.int_value > rightNum.int_value);
+      } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
+        out_value->int_value = (leftNum.int_value == rightNum.int_value);
+      } else if (operator_kind == TOKEN_BANG_EQUAL) {
+        out_value->int_value = (leftNum.int_value != rightNum.int_value);
+      } else {
+        printf("error: unsupported integer binary operator.\n");
         return FAIL;
       }
-      *out_value = leftNum / rightNum;
-    } else if (node->operator_kind == TOKEN_LESS) {
-      if (leftNum < rightNum) {
-        *out_value = 1;
+    } else if (leftNum.type == TYPE_FLOAT && rightNum.type == TYPE_FLOAT) {
+      out_value->type = TYPE_FLOAT;
+      out_value->int_value = 0;
+      out_value->float_value = 0.0;
+      if (operator_kind == TOKEN_PLUS) {
+        out_value->float_value = leftNum.float_value + rightNum.float_value;
+      } else if (operator_kind == TOKEN_MINUS) {
+        out_value->float_value = leftNum.float_value - rightNum.float_value;
+      } else if (operator_kind == TOKEN_STAR) {
+        out_value->float_value = leftNum.float_value * rightNum.float_value;
+      } else if (operator_kind == TOKEN_SLASH) {
+        if (rightNum.float_value == 0) {
+          printf("error: division by zero.\n");
+          return FAIL;
+        }
+        out_value->float_value = leftNum.float_value / rightNum.float_value;
+      } else if (operator_kind == TOKEN_LESS) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value < rightNum.float_value);
+      } else if (operator_kind == TOKEN_GREATER) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value > rightNum.float_value);
+      } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value == rightNum.float_value);
+      } else if (operator_kind == TOKEN_BANG_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value != rightNum.float_value);
       } else {
-        *out_value = 0;
+        printf("error: unsupported numeric binary operator.\n");
+        return FAIL;
       }
-    } else if (node->operator_kind == TOKEN_GREATER) {
-      if (leftNum > rightNum) {
-        *out_value = 1;
+    } else if (leftNum.type == TYPE_INT && rightNum.type == TYPE_FLOAT) {
+      out_value->type = TYPE_FLOAT;
+      out_value->int_value = 0;
+      out_value->float_value = 0.0;
+      if (operator_kind == TOKEN_PLUS) {
+        out_value->float_value = (double)leftNum.int_value + rightNum.float_value;
+      } else if (operator_kind == TOKEN_MINUS) {
+        out_value->float_value = (double)leftNum.int_value - rightNum.float_value;
+      } else if (operator_kind == TOKEN_STAR) {
+        out_value->float_value = (double)leftNum.int_value * rightNum.float_value;
+      } else if (operator_kind == TOKEN_SLASH) {
+        if (rightNum.float_value == 0) {
+          printf("error: division by zero.\n");
+          return FAIL;
+        }
+        out_value->float_value = (double)leftNum.int_value / rightNum.float_value;
+      } else if (operator_kind == TOKEN_LESS) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = ((double)leftNum.int_value < rightNum.float_value);
+      } else if (operator_kind == TOKEN_GREATER) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = ((double)leftNum.int_value > rightNum.float_value);
+      } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = ((double)leftNum.int_value == rightNum.float_value);
+      } else if (operator_kind == TOKEN_BANG_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = ((double)leftNum.int_value != rightNum.float_value);
       } else {
-        *out_value = 0;
+        printf("error: unsupported numeric binary operator.\n");
+        return FAIL;
       }
-    } else if (node->operator_kind == TOKEN_EQUAL_EQUAL) {
-      if (leftNum == rightNum) {
-        *out_value = 1;
+    } else if (leftNum.type == TYPE_FLOAT && rightNum.type == TYPE_INT) {
+      out_value->type = TYPE_FLOAT;
+      out_value->int_value = 0;
+      out_value->float_value = 0.0;
+      if (operator_kind == TOKEN_PLUS) {
+        out_value->float_value = leftNum.float_value + (double)rightNum.int_value;
+      } else if (operator_kind == TOKEN_MINUS) {
+        out_value->float_value = leftNum.float_value - (double)rightNum.int_value;
+      } else if (operator_kind == TOKEN_STAR) {
+        out_value->float_value = leftNum.float_value * (double)rightNum.int_value;
+      } else if (operator_kind == TOKEN_SLASH) {
+        if (rightNum.int_value == 0) {
+          printf("error: division by zero.\n");
+          return FAIL;
+        }
+        out_value->float_value = leftNum.float_value / (double)rightNum.int_value;
+      } else if (operator_kind == TOKEN_LESS) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value < (double)rightNum.int_value);
+      } else if (operator_kind == TOKEN_GREATER) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value > (double)rightNum.int_value);
+      } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value == (double)rightNum.int_value);
+      } else if (operator_kind == TOKEN_BANG_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value != (double)rightNum.int_value);
       } else {
-        *out_value = 0;
-      }
-    } else if (node->operator_kind == TOKEN_BANG_EQUAL) {
-      if (leftNum != rightNum) {
-        *out_value = 1;
-      } else {
-        *out_value = 0;
+        printf("error: unsupported numeric binary operator.\n");
+        return FAIL;
       }
     } else {
-      printf("error: unsupported binary operator\n");
+      printf("error: unsupported operand types.\n");
       return FAIL;
     }
+
     return SUCCESS;
   } else if (node->kind == AST_IDENTIFIER) {
     struct Symbol *symbol = lookup_symbol_visible(table, node->identifier_name);
@@ -923,6 +1097,7 @@ int eval_expression(struct ASTNode * root, struct SymbolTable *table, int *out_v
       return SUCCESS;
     } else {
       printf("error: undefined identifier (%s)\n", node->identifier_name);
+      return FAIL;
     }
   } else {
     printf("Invalid AST_NODE\n");
@@ -945,37 +1120,80 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     }
 
     char *identifier = node->left->identifier_name;
-    int out_value = 0;
+
+    struct Value out_value = {0};
+    out_value.type = declared_variable_type;
+    if (declared_variable_type == TYPE_INT) {
+      out_value.int_value = 0;
+    } else if (declared_variable_type == TYPE_FLOAT) {
+      out_value.float_value = 0.0;
+    }
+
     struct Symbol *symbol = lookup_symbol_current(table, identifier);
     if (symbol) {
       printf("error: redeclaration of identifier %s\n", identifier);
       return FAIL;
     }
+
     if (node->right) {
       int ret = eval_expression(node->right, table, &out_value);
       if (ret == FAIL) {
        return FAIL;
       }
     }
-    printf("declare %s with initial value %d\n", identifier, out_value);
-    store_symbol(table, declared_variable_type, identifier, out_value);
+
+    if (is_assignment_compatible(declared_variable_type, out_value.type) == 0) {
+      printf("error: initializer assignment type mismatch for declared identifier %s\n", identifier);
+      printf("error: expected %s but found %s type.\n",
+        typekind_type_name(declared_variable_type), typekind_type_name(out_value.type));
+      return FAIL;
+    }
+
+    if (declared_variable_type == TYPE_FLOAT && out_value.type == TYPE_INT) {
+      out_value.type = declared_variable_type;
+      out_value.float_value = (double)out_value.int_value;
+      out_value.int_value = 0;
+    }
+
+    printf("declared %s with initial value", identifier);
+    if (out_value.type == TYPE_INT) {
+      printf(" %d\n", out_value.int_value);
+    } else if (out_value.type == TYPE_FLOAT) {
+      printf(" %f\n", out_value.float_value);
+    } else {
+      return FAIL;
+    }
+
+    store_symbol(table, declared_variable_type, identifier, &out_value);
     return SUCCESS;
   } else if (node->kind == AST_ASSIGNMENT) {
-    enum TypeKind type_kind = node->type_kind;
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
       printf("error: assignment to undeclared identifier %s\n", identifier);
       return FAIL;
-    } else {
-      int out_value;
-      int ret = eval_expression(node->right, table, &out_value);
-      if (ret == FAIL) {
-       return FAIL;
-      }
-      //printf("%s = %d\n", identifier, out_value);
-      symbol->value = out_value;
     }
+
+    struct Value out_value = {0};
+    int ret = eval_expression(node->right, table, &out_value);
+    if (ret == FAIL) {
+      return FAIL;
+    }
+
+    if (is_assignment_compatible(symbol->type, out_value.type) == 0) {
+      printf("error: assignment type mismatch for declared identifier %s\n", identifier);
+      printf("error: expected %s but found %s type.\n",
+        typekind_type_name(symbol->type), typekind_type_name(out_value.type));
+      return FAIL;
+    }
+
+    if (symbol->type == TYPE_FLOAT && out_value.type == TYPE_INT) {
+      out_value.type = symbol->type;
+      out_value.float_value = (double)out_value.int_value;
+      out_value.int_value = 0;
+    }
+
+    symbol->value = out_value;
     return SUCCESS;
   } else  if (node->kind == AST_BLOCK) {
     struct SymbolTable local_semantic_table;
@@ -998,7 +1216,7 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
       return FAIL;
     }
 
-    int expr_value;
+    struct Value expr_value;
     int ret = eval_expression(node->left, table, &expr_value);
     if (ret == FAIL) {
       return FAIL;
@@ -1008,7 +1226,8 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
       return FAIL;
     }
 
-    if (expr_value != 0) {
+    if ((expr_value.type == TYPE_INT && expr_value.int_value != 0)
+      || (expr_value.type == TYPE_FLOAT && expr_value.float_value != 0.0)) {
       ret = eval_statement(node->then_branch, table);
       if (ret == FAIL) {
         return FAIL;
@@ -1029,13 +1248,17 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
       return FAIL;
     }
 
-    int out_value;
+    struct Value out_value;
     int ret = eval_expression(node->left, table, &out_value);
     if (ret == FAIL) {
       return FAIL;
     }
 
-    printf("%d\n", out_value);
+    if (out_value.type == TYPE_INT) {
+      printf("%d\n", out_value.int_value);
+    } else if (out_value.type == TYPE_FLOAT) {
+      printf("%f\n", out_value.float_value);
+    }
     return SUCCESS; // print statment executed successfully.
   }
 
@@ -1060,13 +1283,55 @@ int eval_program(struct ASTNode * node, struct SymbolTable *table) {
 }
 
 // type check over AST - NO COMPUTE
+int is_assignment_compatible(enum TypeKind target_type, enum TypeKind source_type) {
+  if (target_type == source_type) {
+    return 1;
+  }
+
+  if ((target_type == TYPE_FLOAT) && (source_type == TYPE_INT)) {
+    return 1;
+  }
+
+  if ((target_type == TYPE_INT) && (source_type == TYPE_FLOAT)) {
+    return 0;
+  }
+
+  return 0;
+}
+
+int is_supported_type(enum TypeKind type) {
+  switch (type) {
+    case TYPE_INT:
+    case TYPE_FLOAT:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+int is_supported_binary_operator(enum TokenKind operator_kind) {
+  if (operator_kind == TOKEN_PLUS
+    || operator_kind == TOKEN_MINUS
+    || operator_kind == TOKEN_STAR
+    || operator_kind == TOKEN_SLASH
+    || operator_kind == TOKEN_LESS
+    || operator_kind == TOKEN_GREATER
+    || operator_kind == TOKEN_EQUAL_EQUAL
+    || operator_kind == TOKEN_BANG_EQUAL) {
+
+    return 1; // supported;
+  }
+
+  return 0; // not supported;
+}
+
 enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table) {
   if (node == NULL) {
     return TYPE_ERROR;
   }
 
   if (node->kind == AST_NUMBER) {
-    return TYPE_INT;
+    return node->type_kind;
   } else if (node->kind == AST_IDENTIFIER) {
 
     char *identifier = node->identifier_name;
@@ -1086,12 +1351,38 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
       printf("error: right expression has unsupported type\n");
       return TYPE_ERROR;
     }
-    if (leftType != rightType) {
-      printf("error: binary expression operands have different Types\n");
+    // int op int -> int
+    // float op float -> float
+    // float op int OR int op float -> promote to float
+
+    enum TokenKind operator_kind = node->operator_kind;
+    if (operator_kind == TOKEN_PLUS || operator_kind == TOKEN_MINUS ||
+        operator_kind == TOKEN_STAR || operator_kind == TOKEN_SLASH) {
+      if (leftType == TYPE_INT && rightType  == TYPE_INT) {
+        return TYPE_INT;
+      } else if (leftType == TYPE_FLOAT && rightType  == TYPE_FLOAT) {
+        return TYPE_FLOAT;
+      } else if (leftType == TYPE_INT && rightType  == TYPE_FLOAT) {
+        return TYPE_FLOAT;
+      } else if (leftType == TYPE_FLOAT && rightType  == TYPE_INT) {
+        return TYPE_FLOAT;
+      } else {
+        printf("error: binary arithmetic expression operands have type error.\n");
+        return TYPE_ERROR;
+      }
+    } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER ||
+        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL) {
+      int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
+      int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
+      if (!left_numeric || !right_numeric) {
+        printf("error: comparison operands must be numeric.\n");
+        return TYPE_ERROR;
+      }
+      return TYPE_INT;
+    } else {
+      printf("error: unsupported binary operator found: %s\n", token_type_name(operator_kind));
       return TYPE_ERROR;
     }
-
-    return leftType;
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
       printf("error: unary expression missing operand\n");
@@ -1099,7 +1390,7 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
     }
 
     enum TypeKind operand_type = analyze_expression_type(node->left, table);
-    if (operand_type == TYPE_ERROR || operand_type != TYPE_INT) {
+    if (is_supported_type(operand_type) == 0) {
       printf("error: expression has unsupported type\n");
       return TYPE_ERROR;
     }
@@ -1121,10 +1412,11 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
   }
 
   if (node->kind == AST_NUMBER) {
-    if (node->type_kind != TYPE_INT) {
-      // currently we are setting this node's type_kind to TYPE_INT if missed somehow
-      node->type_kind = TYPE_INT;
+    if (node->type_kind != TYPE_INT && node->type_kind != TYPE_FLOAT) {
+      printf("error: number expression has invalid type\n");
+      return FAIL;
     }
+
     return SUCCESS;
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
@@ -1147,10 +1439,10 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
-    if (child_type == TYPE_INT) {
-      node->type_kind = TYPE_INT;
+    if (child_type == TYPE_INT || child_type == TYPE_FLOAT) {
+      node->type_kind = child_type;
     } else {
-      printf("error: currently minic only support INT types for operands\n");
+      printf("error: currently minic only support INT/FLOAT types for operands\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -1171,10 +1463,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     node->type_kind = symbol->type;
     return SUCCESS;
   } else if (node->kind == AST_BINARY) {
-    if (node->operator_kind != TOKEN_PLUS && node->operator_kind != TOKEN_MINUS &&
-        node->operator_kind != TOKEN_STAR && node->operator_kind != TOKEN_SLASH &&
-        node->operator_kind != TOKEN_LESS && node->operator_kind != TOKEN_GREATER &&
-        node->operator_kind != TOKEN_EQUAL_EQUAL && node->operator_kind != TOKEN_BANG_EQUAL) {
+    if (is_supported_binary_operator(node->operator_kind) == 0) {
       printf("error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
       node->type_kind = TYPE_ERROR;
       return FAIL;
@@ -1191,28 +1480,48 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
 
-    enum TypeKind left_child_type = analyze_expression_type(node->left, table);
-    enum TypeKind right_child_type = analyze_expression_type(node->right, table);
+    enum TypeKind leftType = analyze_expression_type(node->left, table);
+    enum TypeKind rightType = analyze_expression_type(node->right, table);
 
-    if (left_child_type == TYPE_ERROR || right_child_type == TYPE_ERROR) {
+    if (leftType == TYPE_ERROR || rightType == TYPE_ERROR) {
       printf("error: unsupported types found. Left has: %s and right: %s types \n",
-        typekind_type_name(left_child_type), typekind_type_name(right_child_type));
+        typekind_type_name(leftType), typekind_type_name(rightType));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    if (left_child_type != right_child_type) {
+    enum TokenKind operator_kind = node->operator_kind;
+    if (operator_kind == TOKEN_PLUS || operator_kind == TOKEN_MINUS ||
+        operator_kind == TOKEN_STAR || operator_kind == TOKEN_SLASH) {
+      if (leftType == TYPE_INT && rightType  == TYPE_INT) {
+        node->type_kind = TYPE_INT;
+      } else if (leftType == TYPE_FLOAT && rightType  == TYPE_FLOAT) {
+        node->type_kind = TYPE_FLOAT;
+      } else if (leftType == TYPE_INT && rightType  == TYPE_FLOAT) {
+        node->type_kind = TYPE_FLOAT;
+      } else if (leftType == TYPE_FLOAT && rightType  == TYPE_INT) {
+        node->type_kind = TYPE_FLOAT;
+      } else {
+        printf("error: binary arithmetic expression operands have type error.\n");
+        node->type_kind = TYPE_ERROR;
+        return FAIL;
+      }
+    } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER ||
+        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL) {
+      int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
+      int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
+      if (!left_numeric || !right_numeric) {
+        printf("error: comparison operands must be numeric.\n");
+        node->type_kind = TYPE_ERROR;
+        return FAIL;
+      }
+      node->type_kind = TYPE_INT;
+    } else {
+      printf("error: unsupported binary operator found: %s\n", token_type_name(operator_kind));
       node->type_kind = TYPE_ERROR;
-      printf("error: cannot determine type of binary expression.\n");
       return FAIL;
     }
 
-    if (left_child_type != TYPE_INT) {
-      printf("error: currently minic only support INT types for binary operations\n");
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-    node->type_kind = left_child_type;
     return SUCCESS;
   }
 
@@ -1227,16 +1536,9 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
 
   if (node->kind == AST_DECLARATION) {
     enum TypeKind declared_variable_type = node->declared_variable_type;
-    if (declared_variable_type == TYPE_ERROR ||
-      declared_variable_type == TYPE_UNKNOWN ||
-      declared_variable_type == TYPE_UNUSED) {
-      printf("error: unsupported declaration type %s found.\n", typekind_type_name(declared_variable_type));
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
 
-    if (declared_variable_type != TYPE_INT) {
-      printf("error: currently minic only support INT types for declaration statement. Found %s type.\n",
+    if (is_supported_type(declared_variable_type) == 0) {
+      printf("error: currently minic found unsupported type declaration: %s type.\n",
         typekind_type_name(declared_variable_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
@@ -1270,7 +1572,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
         return FAIL;
       }
 
-      if (declared_variable_type != rhs_expr_type) {
+      if (is_assignment_compatible(declared_variable_type, rhs_expr_type) == 0) {
         printf("error: intializer assignment type mismatch for declared identifier %s\n", identifier);
         printf("error: expected %s but found %s type.\n",
           typekind_type_name(declared_variable_type), typekind_type_name(rhs_expr_type));
@@ -1280,7 +1582,14 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     }
 
     node->left->type_kind = declared_variable_type;
-    store_symbol(table, declared_variable_type, identifier, 0); // last argument is not relevant at this stage
+    struct Value value = {0};
+    value.type = declared_variable_type;
+    if (declared_variable_type == TYPE_INT) {
+      value.int_value = 0;
+    } else if (declared_variable_type == TYPE_FLOAT) {
+      value.float_value = 0.0;
+    }
+    store_symbol(table, declared_variable_type, identifier, &value); // miniC rule: declarations without initializer get default 0 / 0.0
     node->type_kind = declared_variable_type;
     return SUCCESS;
   } else  if (node->kind == AST_ASSIGNMENT) {
@@ -1299,17 +1608,12 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
 
-    if (symbol->type == TYPE_ERROR || symbol->type == TYPE_UNKNOWN || symbol->type == TYPE_UNUSED) {
+    if (is_supported_type(symbol->type) == 0) {
       printf("error: unsupported type found: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    if (symbol->type != TYPE_INT) {
-      printf("error: currently minic only support INT types. Found %s type.\n", typekind_type_name(symbol->type));
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
     node->left->type_kind = symbol->type;
 
     if (node->right == NULL) {
@@ -1331,7 +1635,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
 
-    if (symbol->type != rhs_expr_type) {
+    if (is_assignment_compatible(symbol->type, rhs_expr_type) == 0) {
       printf("error: assignment type mismatch for identifier %s\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
@@ -1370,8 +1674,14 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
     }
 
     enum TypeKind lhs_expr_type = analyze_expression_type(node->left, table);
-    if (lhs_expr_type == TYPE_ERROR || lhs_expr_type != TYPE_INT) {
-      printf("error: condition expression has unsupported type: %s\n", typekind_type_name(lhs_expr_type));
+    if (lhs_expr_type == TYPE_ERROR) {
+      printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    if (lhs_expr_type != TYPE_INT && lhs_expr_type != TYPE_FLOAT) {
+      printf("error: condition expression only supports int and float types\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -1450,7 +1760,7 @@ int analyze_program(struct ASTNode *node, struct SymbolTable *table) {
   return SUCCESS;
 }
 
-// parser function per grammer rule
+// helper parser functions
 void parse_lparen(struct Parser *p) {
   if (p->has_error) {
     return;
@@ -1467,14 +1777,70 @@ void parse_rparen(struct Parser *p) {
   return;
 }
 
-void parse_number(struct Parser *p) {
+// datatype -> INT | FLOAT
+enum TypeKind parse_datatype(struct Parser *p) {
   if (p->has_error) {
-    return;
+    return TYPE_ERROR;
   }
-  expect_token(p, TOKEN_NUMBER);
-  return;
+
+  if (is_current_token(p, TOKEN_INT)) {
+    expect_token(p, TOKEN_INT);
+    if ( p->has_error ) {
+      return TYPE_ERROR;
+    }
+    return TYPE_INT;
+  } else if (is_current_token(p, TOKEN_FLOAT)) {
+    expect_token(p, TOKEN_FLOAT);
+    if ( p->has_error ) {
+      return TYPE_ERROR;
+    }
+    return TYPE_FLOAT;
+  } else {
+    p->has_error = 1;
+    printf("error: unsupported data type found\n");
+  }
+  return TYPE_ERROR;
 }
 
+// float_literal -> digits "." digits
+
+// integer_literal -> digits
+
+// digits -> integer_literal | float_literal
+
+// NUMBER -> digits
+struct ASTNode * parse_number(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * node = NULL;
+  if (is_current_token(p, TOKEN_NUMBER))  {
+    struct Token token = p->tokens[p->pos];
+    int bytesToCopy = (token.length >= BUFFER_SIZE) ? BUFFER_SIZE-1 : token.length;
+    char value[BUFFER_SIZE];
+    strncpy(value, token.start, bytesToCopy);
+    value[bytesToCopy] = '\0';
+    advance_token(p);
+    // Check if the input string contains "." decimal, then it's a TYPE_FLOAT otherwise TYPE_INT
+    enum TypeKind numberType = TYPE_INT;
+    for (int i=0; i < bytesToCopy; i++) {
+      if (value[i] == '.') {
+        numberType = TYPE_FLOAT;
+        break;
+      }
+    }
+    node = createNumberNode(numberType, value);
+    if (node == NULL) {
+      p->has_error = 1;
+      printf("error: failed to create number node\n");
+    }
+  }
+
+  return node;
+}
+
+// IDENTIFIER -> x | _
 struct ASTNode * parse_identifier(struct Parser *p) {
   if (p->has_error) {
     printf("Expected an identifier\n");
@@ -1512,16 +1878,7 @@ struct ASTNode * parse_primary(struct Parser *p) {
   struct ASTNode * node = NULL;
 
   if (is_current_token(p, TOKEN_NUMBER)) {
-    struct Token token = p->tokens[p->pos];
-    int bytesToCopy = (token.length >= BUFFER_SIZE) ? BUFFER_SIZE-1 : token.length;
-    char value[BUFFER_SIZE];
-    strncpy(value, token.start, bytesToCopy);
-    value[bytesToCopy] = '\0';
-    advance_token(p);
-    node = createNumberNode(atoi(value));
-    if (node == NULL) {
-      p->has_error = 1;
-    }
+    node = parse_number(p);
     return node;
   } else if (is_current_token(p, TOKEN_IDENTIFIER))  {
     node = parse_identifier(p);
@@ -1812,17 +2169,18 @@ struct ASTNode * parse_assignment(struct Parser *p) {
   return node;
 }
 
-// declaration -> INT IDENTIFIER SEMICOLON
-//              | INT IDENTIFIER EQUAL expression SEMICOLON
+// declaration -> datatype IDENTIFIER SEMICOLON
+//              | datatype IDENTIFIER EQUAL expression SEMICOLON
 // OR
-// declaration -> INT IDENTIFIER ("=" expression)? SEMICOLON -- compact grammer version
+// declaration -> datatype IDENTIFIER ("=" expression)? SEMICOLON -- compact grammer version
 struct ASTNode * parse_declaration(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
 
-  expect_token(p, TOKEN_INT);
-  if ( p->has_error ) {
+  enum TypeKind dataType = parse_datatype(p);
+
+  if (dataType == TYPE_ERROR || p->has_error) {
     return NULL;
   }
 
@@ -1847,7 +2205,7 @@ struct ASTNode * parse_declaration(struct Parser *p) {
     return NULL;
   }
 
-  struct ASTNode * node = createDeclarationNode(TOKEN_INT, identifier, rightValue);
+  struct ASTNode * node = createDeclarationNode(dataType, identifier, rightValue);
   if (node == NULL) {
     free(identifier);
     if (rightValue) {
@@ -1944,7 +2302,7 @@ struct ASTNode * parse_block(struct Parser *p) {
 }
 
 // if_statement -> if ( expr ) statment else statement
-//                |  if ( expr ) statement
+//               | if ( expr ) statement
 struct ASTNode * parse_if_stmt(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -2042,7 +2400,7 @@ struct ASTNode * parse_statement(struct Parser *p) {
   }
 
   struct ASTNode * node = NULL;
-  if (is_current_token(p, TOKEN_INT)) {
+  if (is_current_token(p, TOKEN_INT) || is_current_token(p, TOKEN_FLOAT)) {
     node = parse_declaration(p);
   } else if (is_current_token(p, TOKEN_PRINT)) {
     node = parse_print_stmt(p);
@@ -2170,8 +2528,12 @@ int main(void) {
   code="if (0) { int x=1; print(x); } else { int y=2; print(y); }";
   code="if (1) if (0) print(1); else print(2);";
   code="if (0) print(1);";
-  code="if (1) { if (0) print(1); } else print(2);";
   code="if (1) print(2); int x=1; int y=2; if (x > 2) print(x); else if (x < 4) { print(x); } else print(y);";
+  code="int y=2; int a=2; float x=1.2; float z=3; z=y; print(z);";
+  code="float x=1.2;int y=2;  x=y;";
+  code="print(2+3.5); print(2 < 3.5); print(3.5 == 3); print(8/2.0); print(8.0/2);";
+  code="if (0) { if (0) print(1); else { int y=0; print(4.34/y);} } else print(2 + 5);";
+  code="if (0) print(1); else print(9); if (3.14) print(2); else print(0); if (-2.0) print(2); else print(0); if (0.0) print(0); else print(8);";
 
   printf("Input: %s\n", code);
 
