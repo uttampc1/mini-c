@@ -60,6 +60,7 @@ enum TokenKind {
   TOKEN_BANG_EQUAL,
   TOKEN_ANDAND,
   TOKEN_OROR,
+  TOKEN_BANG,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_LBRACE,
@@ -249,6 +250,8 @@ const char *token_type_name(enum TokenKind type) {
       return "==";
     case TOKEN_BANG_EQUAL:
       return "!=";
+    case TOKEN_BANG:
+      return "!";
     case TOKEN_ANDAND:
       return "ANDAND";
     case TOKEN_OROR:
@@ -412,6 +415,10 @@ int is_or(char c) {
   return (c == '|');
 }
 
+int is_bang(char c) {
+  return (c == '!');
+}
+
 int is_equal(char c) {
   return (c == '=');
 }
@@ -533,7 +540,7 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
       add_token(tokens, token_count, TOKEN_SLASH, code + idx, 1);
       idx++;
     } else if (is_equal(code[idx])) {
-      if (code[idx+1] == '=') {
+      if (is_equal(code[idx+1])) {
         add_token(tokens, token_count, TOKEN_EQUAL_EQUAL, code + idx, 2);
         idx += 2;
       } else {
@@ -546,13 +553,13 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
     } else if (is_greater(code[idx])) {
       add_token(tokens, token_count, TOKEN_GREATER, code + idx, 1);
       idx++;
-    } else if (code[idx] == '!') {
-      if (code[idx + 1] == '=') {
+    } else if (is_bang(code[idx])) {
+      if (is_equal(code[idx + 1])) {
         add_token(tokens, token_count, TOKEN_BANG_EQUAL, code + idx, 2);
         idx += 2;
       } else {
-        printf("error: unexpected character %c after '!'\n", code[idx+1]);
-        return FAIL;
+        add_token(tokens, token_count, TOKEN_BANG, code + idx, 1);
+        idx++;
       }
     } else if (is_and(code[idx])) {
       if (is_and(code[idx + 1])) {
@@ -988,6 +995,24 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = result.int_value;
       } else if (result.type == TYPE_FLOAT) {
         out_value->float_value = result.float_value;
+      } else {
+        return FAIL;
+      }
+    } else if (node->operator_kind == TOKEN_BANG) {
+      out_value->type = TYPE_INT;
+      out_value->float_value = 0.0;
+      if (result.type == TYPE_INT) {
+        if (result.int_value == 0) {
+          out_value->int_value = 1;
+        } else {
+          out_value->int_value = 0;
+        }
+      } else if (result.type == TYPE_FLOAT) {
+        if (result.float_value == 0.0) {
+          out_value->int_value = 1;
+        } else {
+          out_value->int_value = 0;
+        }
       } else {
         return FAIL;
       }
@@ -1617,7 +1642,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     };
 
-    if (node->operator_kind != TOKEN_MINUS && node->operator_kind != TOKEN_PLUS) {
+    if (node->operator_kind != TOKEN_MINUS && node->operator_kind != TOKEN_PLUS && node->operator_kind != TOKEN_BANG) {
       printf("error: unsupported unary operator %s\n", token_type_name(node->operator_kind));
       return FAIL;
     }
@@ -1633,7 +1658,11 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
     if (child_type == TYPE_INT || child_type == TYPE_FLOAT) {
-      node->type_kind = child_type;
+      if (node->operator_kind == TOKEN_BANG) {
+        node->type_kind = TYPE_INT;
+      } else {
+        node->type_kind = child_type;
+      }
     } else {
       printf("error: currently minic only support INT/FLOAT types for operands\n");
       node->type_kind = TYPE_ERROR;
@@ -2131,13 +2160,13 @@ struct ASTNode * parse_primary(struct Parser *p) {
   return NULL;
 }
 
-// unary -> ('-' | '+') unary | primary
+// unary -> ('-' | '+' | '!') unary | primary
 struct ASTNode * parse_unary(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
 
-  if ( is_current_token(p, TOKEN_MINUS) || is_current_token(p, TOKEN_PLUS) ) {
+  if ( is_current_token(p, TOKEN_MINUS) || is_current_token(p, TOKEN_PLUS) || is_current_token(p, TOKEN_BANG)) {
     struct Token token = current_token(p);
     advance_token(p);
     struct ASTNode * child = parse_unary(p);
