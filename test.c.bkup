@@ -1,3 +1,10 @@
+print(0 && 5);
+print(0 || 0);
+print(1 && 2);
+print(0 || 3);
+print(1 == 1 && 2 == 2);
+print(1 == 2 || 3 == 3);
+print((1 || 0) && 0);
 {
   int x=0;
   while (x < 3) {
@@ -75,3 +82,4 @@ else if (0) {
 }
 else
   print(4);
+

@@ -58,6 +58,8 @@ enum TokenKind {
   TOKEN_GREATER,
   TOKEN_EQUAL_EQUAL,
   TOKEN_BANG_EQUAL,
+  TOKEN_ANDAND,
+  TOKEN_OROR,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_LBRACE,
@@ -247,6 +249,10 @@ const char *token_type_name(enum TokenKind type) {
       return "==";
     case TOKEN_BANG_EQUAL:
       return "!=";
+    case TOKEN_ANDAND:
+      return "ANDAND";
+    case TOKEN_OROR:
+      return "OROR";
     case TOKEN_LPAREN:
       return "LPAREN";
     case TOKEN_RPAREN:
@@ -398,6 +404,14 @@ int is_alpha(char c) {
   return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c == '_'));
 }
 
+int is_and(char c) {
+  return (c == '&');
+}
+
+int is_or(char c) {
+  return (c == '|');
+}
+
 int is_equal(char c) {
   return (c == '=');
 }
@@ -537,7 +551,23 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
         add_token(tokens, token_count, TOKEN_BANG_EQUAL, code + idx, 2);
         idx += 2;
       } else {
-        printf("error: unexpected character '!'\n");
+        printf("error: unexpected character %c after '!'\n", code[idx+1]);
+        return FAIL;
+      }
+    } else if (is_and(code[idx])) {
+      if (is_and(code[idx + 1])) {
+        add_token(tokens, token_count, TOKEN_ANDAND, code + idx, 2);
+        idx += 2;
+      } else {
+        printf("error: unexpected character %c after '&'\n", code[idx+1]);
+        return FAIL;
+      }
+    } else if (is_or(code[idx])) {
+      if (is_or(code[idx + 1])) {
+        add_token(tokens, token_count, TOKEN_OROR, code + idx, 2);
+        idx += 2;
+      } else {
+        printf("error: unexpected character %c after '|'\n", code[idx+1]);
         return FAIL;
       }
     } else if (is_lparen(code[idx])) {
@@ -984,7 +1014,8 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
     enum TokenKind operator_kind =  node->operator_kind;
 
     if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER
-      || operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL) {
+      || operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL
+      || operator_kind == TOKEN_ANDAND      || operator_kind == TOKEN_OROR) {
       out_value->type = TYPE_INT;
     }
 
@@ -1011,6 +1042,28 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = (leftNum.int_value == rightNum.int_value);
       } else if (operator_kind == TOKEN_BANG_EQUAL) {
         out_value->int_value = (leftNum.int_value != rightNum.int_value);
+      } else if (operator_kind == TOKEN_ANDAND) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+        int ret = (leftNum.int_value != 0);
+        if (ret) {
+          ret = (rightNum.int_value != 0);
+        }
+
+        out_value->int_value = ret;
+
+      } else if (operator_kind == TOKEN_OROR) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+
+        int ret = (leftNum.int_value != 0);
+        if (ret == 0) {
+          ret = (rightNum.int_value != 0);
+        }
+        out_value->int_value = ret;
+
       } else {
         printf("error: unsupported integer binary operator.\n");
         return FAIL;
@@ -1047,6 +1100,28 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value != rightNum.float_value);
+      } else if (operator_kind == TOKEN_ANDAND) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+        int ret = (leftNum.float_value != 0.0);
+        if (ret) {
+          ret = (rightNum.float_value != 0.0);
+        }
+
+        out_value->int_value = ret;
+
+      } else if (operator_kind == TOKEN_OROR) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+
+        int ret = (leftNum.float_value != 0.0);
+        if (ret == 0) {
+          ret = (rightNum.float_value != 0.0);
+        }
+        out_value->int_value = ret;
+
       } else {
         printf("error: unsupported numeric binary operator.\n");
         return FAIL;
@@ -1083,6 +1158,28 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value != rightNum.float_value);
+      } else if (operator_kind == TOKEN_ANDAND) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+        int ret = (leftNum.int_value != 0);
+        if (ret) {
+          ret = (rightNum.float_value != 0.0);
+        }
+
+        out_value->int_value = ret;
+
+      } else if (operator_kind == TOKEN_OROR) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+
+        int ret = (leftNum.int_value != 0);
+        if (ret == 0) {
+          ret = (rightNum.float_value != 0.0);
+        }
+        out_value->int_value = ret;
+
       } else {
         printf("error: unsupported numeric binary operator.\n");
         return FAIL;
@@ -1119,6 +1216,28 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value != (double)rightNum.int_value);
+      } else if (operator_kind == TOKEN_ANDAND) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+        int ret = (leftNum.float_value != 0.0);
+        if (ret) {
+          ret = (rightNum.int_value != 0);
+        }
+
+        out_value->int_value = ret;
+
+      } else if (operator_kind == TOKEN_OROR) {
+        out_value->type = TYPE_INT;
+        out_value->int_value = 0;
+        out_value->float_value = 0.0;
+
+        int ret = (leftNum.float_value != 0.0);
+        if (ret == 0) {
+          ret = (rightNum.int_value != 0);
+        }
+        out_value->int_value = ret;
+
       } else {
         printf("error: unsupported numeric binary operator.\n");
         return FAIL;
@@ -1388,7 +1507,9 @@ int is_supported_binary_operator(enum TokenKind operator_kind) {
     || operator_kind == TOKEN_LESS
     || operator_kind == TOKEN_GREATER
     || operator_kind == TOKEN_EQUAL_EQUAL
-    || operator_kind == TOKEN_BANG_EQUAL) {
+    || operator_kind == TOKEN_BANG_EQUAL
+    || operator_kind == TOKEN_ANDAND
+    || operator_kind == TOKEN_OROR) {
 
     return 1; // supported;
   }
@@ -1441,8 +1562,9 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
         printf("error: binary arithmetic expression operands have type error.\n");
         return TYPE_ERROR;
       }
-    } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER ||
-        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL) {
+    } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER    ||
+        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL ||
+        operator_kind == TOKEN_ANDAND      || operator_kind == TOKEN_OROR) {
       int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
       int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
       if (!left_numeric || !right_numeric) {
@@ -1562,6 +1684,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     }
 
     enum TokenKind operator_kind = node->operator_kind;
+
     if (operator_kind == TOKEN_PLUS || operator_kind == TOKEN_MINUS ||
         operator_kind == TOKEN_STAR || operator_kind == TOKEN_SLASH) {
       if (leftType == TYPE_INT && rightType  == TYPE_INT) {
@@ -1578,7 +1701,8 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
         return FAIL;
       }
     } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER ||
-        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL) {
+        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL ||
+        operator_kind == TOKEN_ANDAND      || operator_kind == TOKEN_OROR) {
       int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
       int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
       if (!left_numeric || !right_numeric) {
@@ -2229,13 +2353,86 @@ struct ASTNode * parse_equality(struct Parser *p) {
   return left;
 }
 
-// expression -> equality
+// parse_logical_and -> parse_equality (&& parse_equality)*
+struct ASTNode * parse_logical_and(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * left = parse_equality(p);
+  if (left == NULL) {
+    return NULL;
+  }
+
+  while(p->has_error == 0) {
+    struct Token token = current_token(p);
+    if (is_current_token(p, TOKEN_ANDAND)) {
+      expect_token(p, TOKEN_ANDAND);  // consume the token
+    } else {
+      break;
+    }
+
+    struct ASTNode * right = parse_equality(p);
+    if (right == NULL) {
+      p->has_error = 1;
+      break;
+    }
+
+    struct ASTNode * node = NULL;
+    node = createBinaryNode(token.type, left, right);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      left = node;
+    }
+  }
+
+  return left;
+}
+
+// parse_logical_or -> parse_logical_and (|| parse_logical_and)*
+struct ASTNode * parse_logical_or(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+  struct ASTNode * left = parse_logical_and(p);
+  if (left == NULL) {
+    return NULL;
+  }
+
+  while(p->has_error == 0) {
+    struct Token token = current_token(p);
+    if (is_current_token(p, TOKEN_OROR)) {
+      expect_token(p, TOKEN_OROR);  // consume the token
+    } else {
+      break;
+    }
+
+    struct ASTNode * right = parse_logical_and(p);
+    if (right == NULL) {
+      p->has_error = 1;
+      break;
+    }
+
+    struct ASTNode * node = NULL;
+    node = createBinaryNode(token.type, left, right);
+    if (node == NULL) {
+      p->has_error = 1;
+    } else {
+      left = node;
+    }
+  }
+
+  return left;
+}
+
+// expression -> parse_logical_or
 struct ASTNode * parse_expression(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
 
-  struct ASTNode * node = parse_equality(p);
+  struct ASTNode * node = parse_logical_or(p);
 
   return node;
 }
