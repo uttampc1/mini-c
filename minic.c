@@ -61,6 +61,8 @@ enum TokenKind {
   TOKEN_ANDAND,
   TOKEN_OROR,
   TOKEN_BANG,
+  TOKEN_GREATER_EQUAL,
+  TOKEN_LESS_EQUAL,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_LBRACE,
@@ -244,8 +246,12 @@ const char *token_type_name(enum TokenKind type) {
       return "=";
     case TOKEN_LESS:
       return "<";
+    case TOKEN_LESS_EQUAL:
+      return "<=";
     case TOKEN_GREATER:
       return ">";
+    case TOKEN_GREATER_EQUAL:
+      return ">=";
     case TOKEN_EQUAL_EQUAL:
       return "==";
     case TOKEN_BANG_EQUAL:
@@ -548,11 +554,21 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
         idx++;
       }
     } else if (is_less(code[idx])) {
-      add_token(tokens, token_count, TOKEN_LESS, code + idx, 1);
-      idx++;
+      if (is_equal(code[idx+1])) {
+        add_token(tokens, token_count, TOKEN_LESS_EQUAL, code + idx, 2);
+        idx += 2;
+      } else {
+        add_token(tokens, token_count, TOKEN_LESS, code + idx, 1);
+        idx++;
+      }
     } else if (is_greater(code[idx])) {
-      add_token(tokens, token_count, TOKEN_GREATER, code + idx, 1);
-      idx++;
+      if (is_equal(code[idx+1])) {
+        add_token(tokens, token_count, TOKEN_GREATER_EQUAL, code + idx, 2);
+        idx += 2;
+      } else {
+        add_token(tokens, token_count, TOKEN_GREATER, code + idx, 1);
+        idx++;
+      }
     } else if (is_bang(code[idx])) {
       if (is_equal(code[idx + 1])) {
         add_token(tokens, token_count, TOKEN_BANG_EQUAL, code + idx, 2);
@@ -1061,8 +1077,12 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = leftNum.int_value / rightNum.int_value;
       } else if (operator_kind == TOKEN_LESS) {
         out_value->int_value = (leftNum.int_value < rightNum.int_value);
+      } else if (operator_kind == TOKEN_LESS_EQUAL) {
+        out_value->int_value = (leftNum.int_value <= rightNum.int_value);
       } else if (operator_kind == TOKEN_GREATER) {
         out_value->int_value = (leftNum.int_value > rightNum.int_value);
+      } else if (operator_kind == TOKEN_GREATER_EQUAL) {
+        out_value->int_value = (leftNum.int_value >= rightNum.int_value);
       } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
         out_value->int_value = (leftNum.int_value == rightNum.int_value);
       } else if (operator_kind == TOKEN_BANG_EQUAL) {
@@ -1113,10 +1133,18 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value < rightNum.float_value);
+      } else if (operator_kind == TOKEN_LESS_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value <= rightNum.float_value);
       } else if (operator_kind == TOKEN_GREATER) {
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value > rightNum.float_value);
+      } else if (operator_kind == TOKEN_GREATER_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value >= rightNum.float_value);
       } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
@@ -1171,10 +1199,18 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value < rightNum.float_value);
+      } else if (operator_kind == TOKEN_LESS_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = ((double)leftNum.int_value <= rightNum.float_value);
       } else if (operator_kind == TOKEN_GREATER) {
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value > rightNum.float_value);
+      } else if (operator_kind == TOKEN_GREATER_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = ((double)leftNum.int_value >= rightNum.float_value);
       } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
@@ -1229,10 +1265,18 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value < (double)rightNum.int_value);
+      } else if (operator_kind == TOKEN_LESS_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value <= (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_GREATER) {
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value > (double)rightNum.int_value);
+      } else if (operator_kind == TOKEN_GREATER_EQUAL) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        out_value->int_value = (leftNum.float_value >= (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
         out_value->type = TYPE_INT;
         out_value->float_value = 0.0;
@@ -1530,7 +1574,9 @@ int is_supported_binary_operator(enum TokenKind operator_kind) {
     || operator_kind == TOKEN_STAR
     || operator_kind == TOKEN_SLASH
     || operator_kind == TOKEN_LESS
+    || operator_kind == TOKEN_LESS_EQUAL
     || operator_kind == TOKEN_GREATER
+    || operator_kind == TOKEN_GREATER_EQUAL
     || operator_kind == TOKEN_EQUAL_EQUAL
     || operator_kind == TOKEN_BANG_EQUAL
     || operator_kind == TOKEN_ANDAND
@@ -1558,6 +1604,11 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
     }
     return symbol->type;
   } else if (node->kind == AST_BINARY) {
+    if (is_supported_binary_operator(node->operator_kind) == 0) {
+      printf("error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
+      return TYPE_ERROR;
+    }
+
     enum TypeKind leftType = analyze_expression_type(node->left, table);
     if (leftType == TYPE_ERROR) {
       printf("error: left expression has unsupported type\n");
@@ -1587,9 +1638,7 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
         printf("error: binary arithmetic expression operands have type error.\n");
         return TYPE_ERROR;
       }
-    } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER    ||
-        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL ||
-        operator_kind == TOKEN_ANDAND      || operator_kind == TOKEN_OROR) {
+    } else {
       int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
       int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
       if (!left_numeric || !right_numeric) {
@@ -1597,9 +1646,6 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
         return TYPE_ERROR;
       }
       return TYPE_INT;
-    } else {
-      printf("error: unsupported binary operator found: %s\n", token_type_name(operator_kind));
-      return TYPE_ERROR;
     }
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
@@ -1729,9 +1775,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
-    } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER ||
-        operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL ||
-        operator_kind == TOKEN_ANDAND      || operator_kind == TOKEN_OROR) {
+    } else {
       int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
       int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
       if (!left_numeric || !right_numeric) {
@@ -1740,10 +1784,6 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
         return FAIL;
       }
       node->type_kind = TYPE_INT;
-    } else {
-      printf("error: unsupported binary operator found: %s\n", token_type_name(operator_kind));
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
     }
 
     return SUCCESS;
@@ -2288,7 +2328,7 @@ struct ASTNode * parse_term(struct Parser *p) {
 
 }
 
-// comparison -> term ((LESS | GREATER) term)*
+// comparison -> term ((LESS | GREATER | LESS_OR_EQUAL | GREATER_OR_EQUAL) term)*
 struct ASTNode * parse_comparison(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -2306,6 +2346,10 @@ struct ASTNode * parse_comparison(struct Parser *p) {
       expect_token(p, TOKEN_LESS);  // consume the token
     } else if (is_current_token(p, TOKEN_GREATER)) {
       expect_token(p, TOKEN_GREATER); // consume the token
+    } else if (is_current_token(p, TOKEN_LESS_EQUAL)) {
+      expect_token(p, TOKEN_LESS_EQUAL);  // consume the token
+    } else if (is_current_token(p, TOKEN_GREATER_EQUAL)) {
+      expect_token(p, TOKEN_GREATER_EQUAL); // consume the token
     } else {
       break;
     }

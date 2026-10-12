@@ -1,3 +1,88 @@
+print(0 && 5);
+print(0 || 0);
+print(1 && 2);
+print(0 || 3);
+print(1 == 1 && 2 == 2);
+print(1 == 2 || 3 == 3);
+print((1 || 0) && 0);
+{
+  int x=0;
+  while (x < 3) {
+    print(x);
+    x = x + 1;
+  }
+}
+{
+  int x=5;
+  while (x < 3) {
+    print(x);
+  }
+  print(x);
+}
+{
+  float x=2.0;
+  while (x) {
+    print(x);
+    x = x - 1.0;
+  }
+}
+int x = 10;
+float y = 3.5;
+print(x);
+print(y);
+print(x + 2);
+print(y + 1.5);
+print(x + y);
+print(x > 5);
+print(y == 3.5);
+
+{
+  int x = 2;
+  float y = 4.0;
+  print(x);
+  print(y);
+  print(x + y);
+  print(x < 5);
+}
+
+print(x);
+print(y);
+
+if (x > 5) {
+  print(100);
+} else {
+  print(200);
+}
+
+if (0) {
+  print(1);
+} else {
+  print(2);
+}
+
+if (1) {
+  if (0) {
+    print(3);
+  } else {
+    print(4.5 + 0.5);
+  }
+} else {
+  print(5);
+}
+
+x = x + 1;
+y = y + 2.0;
+print(x);
+print(y);
+if (0) 
+  print(1);
+else if (0) {
+  print(2);
+  print(1);
+}
+else
+  print(4);
+
 print(!0);
 print(!1);
 print(!5);
@@ -6,3 +91,7 @@ print(!2.5);
 print(!-1);
 print(!-5);
 print(!-2.5);
+print( 3 <= 3);
+print( 2 <= 3);
+print( 4 >= 3);
+print( 3 >= 3.0);
