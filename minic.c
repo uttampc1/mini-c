@@ -53,6 +53,7 @@ enum TokenKind {
   TOKEN_STAR,
   TOKEN_SLASH,
   TOKEN_MINUS,
+  TOKEN_PERCENT,
   TOKEN_EQUAL,
   TOKEN_LESS,
   TOKEN_GREATER,
@@ -242,6 +243,8 @@ const char *token_type_name(enum TokenKind type) {
       return "/";
     case TOKEN_MINUS:
       return "-";
+    case TOKEN_PERCENT:
+      return "%";
     case TOKEN_EQUAL:
       return "=";
     case TOKEN_LESS:
@@ -413,6 +416,10 @@ int is_alpha(char c) {
   return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c == '_'));
 }
 
+int is_percent(char c) {
+  return (c == '%');
+}
+
 int is_and(char c) {
   return (c == '&');
 }
@@ -535,6 +542,9 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
       idx++;
     } else if (is_minus(code[idx])) {
       add_token(tokens, token_count, TOKEN_MINUS, code + idx, 1);
+      idx++;
+    } else if (is_percent(code[idx])) {
+      add_token(tokens, token_count, TOKEN_PERCENT, code + idx, 1);
       idx++;
     } else if (is_semicolon(code[idx])) {
       add_token(tokens, token_count, TOKEN_SEMICOLON, code + idx, 1);
@@ -1109,6 +1119,14 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         }
         out_value->int_value = ret;
 
+      } else if (operator_kind == TOKEN_PERCENT) {
+        out_value->type = TYPE_INT;
+        out_value->float_value = 0.0;
+        if (rightNum.int_value == 0) {
+          printf("error: modulo by zero.\n");
+          return FAIL;
+        }
+        out_value->int_value = leftNum.int_value % rightNum.int_value;
       } else {
         printf("error: unsupported integer binary operator.\n");
         return FAIL;
@@ -1573,6 +1591,7 @@ int is_supported_binary_operator(enum TokenKind operator_kind) {
     || operator_kind == TOKEN_MINUS
     || operator_kind == TOKEN_STAR
     || operator_kind == TOKEN_SLASH
+    || operator_kind == TOKEN_PERCENT
     || operator_kind == TOKEN_LESS
     || operator_kind == TOKEN_LESS_EQUAL
     || operator_kind == TOKEN_GREATER
@@ -1636,6 +1655,13 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
         return TYPE_FLOAT;
       } else {
         printf("error: binary arithmetic expression operands have type error.\n");
+        return TYPE_ERROR;
+      }
+    } else if (operator_kind == TOKEN_PERCENT) {
+      if (leftType == TYPE_INT && rightType  == TYPE_INT) {
+        return TYPE_INT;
+      } else {
+        printf("error: modulo operands must be of int type.\n");
         return TYPE_ERROR;
       }
     } else {
@@ -2231,7 +2257,7 @@ struct ASTNode * parse_unary(struct Parser *p) {
   return NULL;
 }
 
-// factor -> unary ((STAR | SLASH) unary)*
+// factor -> unary ((STAR | SLASH | PERCENT) unary)*
 struct ASTNode * parse_factor(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -2251,6 +2277,8 @@ struct ASTNode * parse_factor(struct Parser *p) {
       expect_token(p, TOKEN_STAR);  // consume the token
     } else if (is_current_token(p, TOKEN_SLASH)) {
       expect_token(p, TOKEN_SLASH); // consume the token
+    } else if (is_current_token(p, TOKEN_PERCENT)) {
+      expect_token(p, TOKEN_PERCENT); // consume the token
     } else {
       break;
     }
