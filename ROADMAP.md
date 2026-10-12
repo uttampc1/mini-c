@@ -189,7 +189,7 @@ Goal: complete a solid structured miniC front end + interpreter.
 - [x] logical NOT `!`
 - [x] `<=`
 - [x] `>=`
-- [ ] modulus `%` for integers only
+- [x] modulus `%` for integers only
 - [ ] maybe explicit casts later
 
 #### Statements to add
