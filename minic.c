@@ -1857,7 +1857,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
 
       enum TypeKind rhs_expr_type = analyze_expression_type(node->right, table);
       if (rhs_expr_type == TYPE_ERROR) {
-        printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
+        //printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
@@ -1920,13 +1920,15 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
 
     enum TypeKind rhs_expr_type = analyze_expression_type(node->right, table);
     if (rhs_expr_type == TYPE_ERROR) {
-      printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
+      //printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (is_assignment_compatible(symbol->type, rhs_expr_type) == 0) {
       printf("error: assignment type mismatch for identifier %s\n", identifier);
+      printf("error: expected %s but found %s type.\n",
+        typekind_type_name(symbol->type), typekind_type_name(rhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -1947,7 +1949,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       }
     }
 
-    printf("Local symbol table after analyzing statement.\n");
+    //printf("Local symbol table after analyzing statement.\n");
     print_symbol_table(&local_semantic_table);
     return SUCCESS;
   } else if (node->kind == AST_IF) {
@@ -1965,7 +1967,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
 
     enum TypeKind lhs_expr_type = analyze_expression_type(node->condition, table);
     if (lhs_expr_type == TYPE_ERROR) {
-      printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
+      //printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2052,7 +2054,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
 
     enum TypeKind expr_type = analyze_expression_type(node->left, table);
     if (expr_type == TYPE_ERROR) {
-      printf("error: print expression has unsupported type\n");
+      //printf("error: print expression has unsupported type\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
