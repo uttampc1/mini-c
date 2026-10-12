@@ -186,9 +186,9 @@ Goal: complete a solid structured miniC front end + interpreter.
 #### Expressions to add
 - [x] logical AND `&&`
 - [x] logical OR `||`
-- [ ] logical NOT `!`
-- [ ] `<=`
-- [ ] `>=`
+- [x] logical NOT `!`
+- [x] `<=`
+- [x] `>=`
 - [ ] modulus `%` for integers only
 - [ ] maybe explicit casts later
 
