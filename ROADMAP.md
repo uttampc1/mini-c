@@ -184,8 +184,8 @@ A better goal is:
 Goal: complete a solid structured miniC front end + interpreter.
 
 #### Expressions to add
-- [ ] logical AND `&&`
-- [ ] logical OR `||`
+- [x] logical AND `&&`
+- [x] logical OR `||`
 - [ ] logical NOT `!`
 - [ ] `<=`
 - [ ] `>=`
