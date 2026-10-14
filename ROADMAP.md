@@ -193,8 +193,8 @@ Goal: complete a solid structured miniC front end + interpreter.
 - [ ] maybe explicit casts later
 
 #### Statements to add
-- [ ] `break`
-- [ ] `continue`
+- [x] `break`
+- [x] `continue`
 - [ ] `for`
 - [ ] `return`
 
@@ -206,13 +206,13 @@ Goal: complete a solid structured miniC front end + interpreter.
 - [ ] strengthen parser error handling gradually
 
 #### Recommended near-term order
-1. [ ] `&&`
-2. [ ] `||`
-3. [ ] `!`
-4. [ ] `<=`
-5. [ ] `>=`
-6. [ ] `break`
-7. [ ] `continue`
+1. [x] `&&`
+2. [x] `||`
+3. [x] `!`
+4. [x] `<=`
+5. [x] `>=`
+6. [x] `break`
+7. [x] `continue`
 8. [ ] `for`
 
 ---

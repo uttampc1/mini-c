@@ -42,8 +42,8 @@ primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
 #define SUCCESS 1
 #define FAIL    0
 
-#define BUFFER_SIZE 512
-#define MAX_SYMBOLS 100
+#define BUFFER_SIZE 1024
+#define MAX_SYMBOLS 1024
 #define SPACES 2
 
 enum TokenKind {
@@ -71,6 +71,8 @@ enum TokenKind {
   TOKEN_IF,
   TOKEN_ELSE,
   TOKEN_WHILE,
+  TOKEN_BREAK,
+  TOKEN_CONTINUE,
   TOKEN_INT,
   TOKEN_FLOAT,
   TOKEN_SEMICOLON,
@@ -89,6 +91,8 @@ enum ASTNodeKind {
   AST_PRINT,
   AST_IF,
   AST_WHILE,
+  AST_BREAK,
+  AST_CONTINUE,
   AST_BLOCK,
   AST_PROGRAM,
   AST_UNKNOWN
@@ -100,6 +104,13 @@ enum TypeKind {
   TYPE_UNKNOWN,
   TYPE_UNUSED,
   TYPE_ERROR
+};
+
+enum EvalResult {
+  EVAL_FAIL,
+  EVAL_OK,
+  EVAL_BREAK,
+  EVAL_CONTINUE
 };
 
 struct Token {
@@ -150,6 +161,16 @@ struct SymbolTable {
   int count;
 };
 
+/* Following two structures are used during semantic analysis phase */
+struct LoopFrame {
+  enum ASTNodeKind kind;
+  struct LoopFrame *prev;
+};
+
+struct SemanticContext {
+  struct LoopFrame *current_loop;
+};
+
 struct ASTNode * createASTNode();
 struct ASTNode * createUnaryNode(enum TokenKind type);
 struct ASTNode * createNumberNode(enum TypeKind type, char * value);
@@ -163,6 +184,13 @@ struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_st
 struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
 
+enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table);
+int analyze_expression(struct ASTNode *node, struct SymbolTable *table);
+int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx); 
+int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx);
+
+enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table);
+
 struct Symbol  * lookup_symbol_current(struct SymbolTable *table, char *name); // current scope search
 struct Symbol  * lookup_symbol_visible(struct SymbolTable *table, char *name); // globalc scope search
 struct ASTNode * parse_program(struct Parser *p);
@@ -172,8 +200,8 @@ struct ASTNode * parse_expression(struct Parser *p);
 struct ASTNode * parse_primary(struct Parser *p);
 struct ASTNode * parse_term(struct Parser *p);
 
-void add_statement_to_program(struct ASTNode * program, struct ASTNode * statement);
-void add_statement_to_block(struct ASTNode * node, struct ASTNode * statement);
+int add_statement_to_program(struct ASTNode * program, struct ASTNode * statement);
+int add_statement_to_block(struct ASTNode * node, struct ASTNode * statement);
 int is_assignment_compatible(enum TypeKind target_type, enum TypeKind source_type);
 
 enum TypeKind token_to_typekind(enum TokenKind type) {
@@ -205,6 +233,10 @@ char *ast_node_type_name(enum ASTNodeKind kind) {
       return "IF";
     case AST_WHILE:
       return "WHILE";
+    case AST_BREAK:
+      return "BREAK";
+    case AST_CONTINUE:
+      return "CONTINUE";
     case AST_PROGRAM:
       return "PROGRAM";
   }
@@ -283,6 +315,10 @@ const char *token_type_name(enum TokenKind type) {
       return "ELSE";
     case TOKEN_WHILE:
       return "WHILE";
+    case TOKEN_BREAK:
+      return "BREAK";
+    case TOKEN_CONTINUE:
+      return "CONTINUE";
     case TOKEN_SEMICOLON:
       return "SEMICOLON";
     case TOKEN_UNKNOWN:
@@ -294,14 +330,19 @@ const char *token_type_name(enum TokenKind type) {
 }
 
 // lexer
-void add_token(struct Token tokens[], int *token_count, enum TokenKind type, char *start, int length) {
+int add_token(struct Token tokens[], int *token_count, enum TokenKind type, char *start, int length) {
   struct Token t;
   t.type = type;
   t.start = start;
   t.length = length;
-  tokens[*token_count] = t;
-  *token_count = *token_count + 1;
-  return;
+  if (*token_count < BUFFER_SIZE) {
+    tokens[*token_count] = t;
+    *token_count = *token_count + 1;
+    return SUCCESS;
+  } else {
+    printf("error: no more tokens will be accepted. OOM\n");
+    return FAIL;
+  }
 }
 
 void print_token(struct Token t) {
@@ -385,6 +426,10 @@ void print_ast_tree(struct ASTNode *node, int depth) {
       printf("%*s %s \n", SPACES*(depth+1), " ", "BODY");
       print_ast_tree(t->body, depth+2);
     }
+  } else if (t->kind == AST_BREAK) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
+  } else if (t->kind == AST_CONTINUE) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_PRINT) {
     printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_ASSIGNMENT) {
@@ -530,119 +575,175 @@ void skip_spaces(char *code, int *i) {
 
 int tokenize(char *code, struct Token tokens[], int *token_count) {
   int idx = 0;
+  int ret=0;
   while(code[idx] != '\0') {
+    ret = SUCCESS;
     if (is_space(code[idx])) {
       skip_spaces(code, &idx);
     } else if (is_digit(code[idx])) {
       int start = idx;
       idx = scan_number(code, idx);
-      add_token(tokens, token_count, TOKEN_NUMBER, code + start, idx - start);
+      ret = add_token(tokens, token_count, TOKEN_NUMBER, code + start, idx - start);
     } else if (is_plus(code[idx])) {
-      add_token(tokens, token_count, TOKEN_PLUS, code + idx, 1);
-      idx++;
-    } else if (is_minus(code[idx])) {
-      add_token(tokens, token_count, TOKEN_MINUS, code + idx, 1);
-      idx++;
-    } else if (is_percent(code[idx])) {
-      add_token(tokens, token_count, TOKEN_PERCENT, code + idx, 1);
-      idx++;
-    } else if (is_semicolon(code[idx])) {
-      add_token(tokens, token_count, TOKEN_SEMICOLON, code + idx, 1);
-      idx++;
-    } else if (is_star(code[idx])) {
-      add_token(tokens, token_count, TOKEN_STAR, code + idx, 1);
-      idx++;
-    } else if (is_slash(code[idx])) {
-      add_token(tokens, token_count, TOKEN_SLASH, code + idx, 1);
-      idx++;
-    } else if (is_equal(code[idx])) {
-      if (is_equal(code[idx+1])) {
-        add_token(tokens, token_count, TOKEN_EQUAL_EQUAL, code + idx, 2);
-        idx += 2;
-      } else {
-        add_token(tokens, token_count, TOKEN_EQUAL, code + idx, 1);
+      ret = add_token(tokens, token_count, TOKEN_PLUS, code + idx, 1);
+      if (ret == SUCCESS) {
         idx++;
+      }
+    } else if (is_minus(code[idx])) {
+      ret = add_token(tokens, token_count, TOKEN_MINUS, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
+    } else if (is_percent(code[idx])) {
+      ret = add_token(tokens, token_count, TOKEN_PERCENT, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
+    } else if (is_semicolon(code[idx])) {
+      ret = add_token(tokens, token_count, TOKEN_SEMICOLON, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
+    } else if (is_star(code[idx])) {
+      ret = add_token(tokens, token_count, TOKEN_STAR, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
+    } else if (is_slash(code[idx])) {
+      ret = add_token(tokens, token_count, TOKEN_SLASH, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
+    } else if (is_equal(code[idx])) {
+      if (code[idx+1] != '\0' && is_equal(code[idx+1])) {
+        ret = add_token(tokens, token_count, TOKEN_EQUAL_EQUAL, code + idx, 2);
+        if (ret == SUCCESS) {
+          idx += 2;
+        }
+      } else {
+        ret = add_token(tokens, token_count, TOKEN_EQUAL, code + idx, 1);
+        if (ret == SUCCESS) {
+          idx++;
+        }
       }
     } else if (is_less(code[idx])) {
-      if (is_equal(code[idx+1])) {
-        add_token(tokens, token_count, TOKEN_LESS_EQUAL, code + idx, 2);
-        idx += 2;
+      if (code[idx+1] != '\0' && is_equal(code[idx+1])) {
+        ret = add_token(tokens, token_count, TOKEN_LESS_EQUAL, code + idx, 2);
+        if (ret == SUCCESS) {
+          idx += 2;
+        }
       } else {
-        add_token(tokens, token_count, TOKEN_LESS, code + idx, 1);
-        idx++;
+        ret = add_token(tokens, token_count, TOKEN_LESS, code + idx, 1);
+        if (ret == SUCCESS) {
+          idx++;
+        }
       }
     } else if (is_greater(code[idx])) {
-      if (is_equal(code[idx+1])) {
-        add_token(tokens, token_count, TOKEN_GREATER_EQUAL, code + idx, 2);
-        idx += 2;
+      if (code[idx+1] != '\0' && is_equal(code[idx+1])) {
+        ret = add_token(tokens, token_count, TOKEN_GREATER_EQUAL, code + idx, 2);
+        if (ret == SUCCESS) {
+          idx += 2;
+        }
       } else {
-        add_token(tokens, token_count, TOKEN_GREATER, code + idx, 1);
-        idx++;
+        ret = add_token(tokens, token_count, TOKEN_GREATER, code + idx, 1);
+        if (ret == SUCCESS) {
+          idx++;
+        }
       }
     } else if (is_bang(code[idx])) {
-      if (is_equal(code[idx + 1])) {
-        add_token(tokens, token_count, TOKEN_BANG_EQUAL, code + idx, 2);
-        idx += 2;
+      if (code[idx+1] != '\0' && is_equal(code[idx + 1])) {
+        ret = add_token(tokens, token_count, TOKEN_BANG_EQUAL, code + idx, 2);
+        if (ret == SUCCESS) {
+          idx += 2;
+        }
       } else {
-        add_token(tokens, token_count, TOKEN_BANG, code + idx, 1);
-        idx++;
+        ret = add_token(tokens, token_count, TOKEN_BANG, code + idx, 1);
+        if (ret == SUCCESS) {
+          idx++;
+        }
       }
     } else if (is_and(code[idx])) {
-      if (is_and(code[idx + 1])) {
-        add_token(tokens, token_count, TOKEN_ANDAND, code + idx, 2);
-        idx += 2;
+      if (code[idx+1] != '\0' && is_and(code[idx + 1])) {
+        ret = add_token(tokens, token_count, TOKEN_ANDAND, code + idx, 2);
+        if (ret == SUCCESS) {
+          idx += 2;
+        }
       } else {
-        printf("error: unexpected character %c after '&'\n", code[idx+1]);
+        printf("error: unexpected character '&' after '&'\n");
         return FAIL;
       }
     } else if (is_or(code[idx])) {
-      if (is_or(code[idx + 1])) {
-        add_token(tokens, token_count, TOKEN_OROR, code + idx, 2);
-        idx += 2;
+      if (code[idx+1] != '\0' && is_or(code[idx + 1])) {
+        ret = add_token(tokens, token_count, TOKEN_OROR, code + idx, 2);
+        if (ret == SUCCESS) {
+          idx += 2;
+        }
       } else {
-        printf("error: unexpected character %c after '|'\n", code[idx+1]);
+        printf("error: unexpected character '|' after '|'\n");
         return FAIL;
       }
     } else if (is_lparen(code[idx])) {
-      add_token(tokens, token_count, TOKEN_LPAREN, code + idx, 1);
-      idx++;
+      ret = add_token(tokens, token_count, TOKEN_LPAREN, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
     } else if (is_rparen(code[idx])) {
-      add_token(tokens, token_count, TOKEN_RPAREN, code + idx, 1);
-      idx++;
+      ret = add_token(tokens, token_count, TOKEN_RPAREN, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
     } else if (is_lbrace(code[idx])) {
-      add_token(tokens, token_count, TOKEN_LBRACE, code + idx, 1);
-      idx++;
+      ret = add_token(tokens, token_count, TOKEN_LBRACE, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
     } else if (is_rbrace(code[idx])) {
-      add_token(tokens, token_count, TOKEN_RBRACE, code + idx, 1);
-      idx++;
+      ret = add_token(tokens, token_count, TOKEN_RBRACE, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
     } else if (is_alpha(code[idx])) {
       int start = idx;
       idx = scan_identifier(code, idx);
       // keywords
-      if (strncmp(code+start, "int", idx-start) == 0) {
-        add_token(tokens, token_count, TOKEN_INT, code + start, idx - start);
-      } else if (strncmp(code+start, "float", idx-start) == 0) {
-        add_token(tokens, token_count, TOKEN_FLOAT, code + start, idx - start);
-      } else if (strncmp(code+start, "if", idx-start) == 0) {
-        add_token(tokens, token_count, TOKEN_IF, code + start, idx - start);
-      } else if (strncmp(code+start, "else", idx-start) == 0) {
-        add_token(tokens, token_count, TOKEN_ELSE, code + start, idx - start);
-      } else if (strncmp(code+start, "while", idx-start) == 0) {
-        add_token(tokens, token_count, TOKEN_WHILE, code + start, idx - start);
-      } else if (strncmp(code+start, "print", idx-start) == 0) {
-        // internal print() funtion/keyword
-        add_token(tokens, token_count, TOKEN_PRINT, code + start, idx - start);
+      int len = idx - start;
+      if ((len == 3) && strncmp(code+start, "int", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_INT, code + start, len);
+      } else if ((len == 5) && strncmp(code+start, "float", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_FLOAT, code + start, len);
+      } else if ((len == 2) && strncmp(code+start, "if", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_IF, code + start, len);
+      } else if ((len == 4) && strncmp(code+start, "else", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_ELSE, code + start, len);
+      } else if ((len == 5) && strncmp(code+start, "while", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_WHILE, code + start, len);
+      } else if ((len == 5) && strncmp(code+start, "break", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_BREAK, code + start, len);
+      } else if ((len == 8) && strncmp(code+start, "continue", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_CONTINUE, code + start, len);
+      } else if ((len == 5) && strncmp(code+start, "print", len) == 0) {
+        // internal print() function/keyword
+        ret = add_token(tokens, token_count, TOKEN_PRINT, code + start, len);
       } else {
         // identifiers
-        add_token(tokens, token_count, TOKEN_IDENTIFIER, code + start, idx - start);
+        ret = add_token(tokens, token_count, TOKEN_IDENTIFIER, code + start, len);
       }
     } else {
-      add_token(tokens, token_count, TOKEN_UNKNOWN, code + idx, 1);
-      idx++;
+      ret = add_token(tokens, token_count, TOKEN_UNKNOWN, code + idx, 1);
+      if (ret == SUCCESS) {
+        idx++;
+      }
+    }
+
+    if (ret == FAIL) {
+      return FAIL;
     }
   }
 
-  add_token(tokens, token_count, TOKEN_EOF, code + idx, 0);
+  ret = add_token(tokens, token_count, TOKEN_EOF, code + idx, 0);
+  if (ret == FAIL) {
+    return FAIL;
+  }
   return SUCCESS;
 }
 
@@ -817,6 +918,28 @@ struct ASTNode * createBlockNode() {
   return node;
 }
 
+struct ASTNode * createBreakNode() {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("error: couldn't allocate memory for break ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_BREAK;
+  return node;
+}
+
+struct ASTNode * createContinueNode() {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("error: couldn't allocate memory for continue ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_CONTINUE;
+  return node;
+}
+
 struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
@@ -858,7 +981,7 @@ struct ASTNode * createProgramNode() {
 
 
 // helper: add new statement to the program node.
-void add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) {
+int add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) {
   struct ASTNode * program = node;
 
   // we can add few checks
@@ -868,15 +991,18 @@ void add_statement_to_program(struct ASTNode * node, struct ASTNode * statement)
   if ( program && (program->kind == AST_PROGRAM) && (statement != NULL) ) {
     int count = program->statement_count;
 
-    if (count < 256) {
-     program->statements[count] = statement;
-     program->statement_count = count + 1;
+    if (count < BUFFER_SIZE) {
+      program->statements[count] = statement;
+      program->statement_count = count + 1;
+    } else {
+      printf("error: we are running out of space to add additional statements in a program\n");
+      return FAIL;
     }
   }
-  return;
+  return SUCCESS;
 }
 
-void add_statement_to_block(struct ASTNode * node, struct ASTNode * statement) {
+int add_statement_to_block(struct ASTNode * node, struct ASTNode * statement) {
   struct ASTNode * block = node;
 
   // we can add few checks
@@ -886,12 +1012,15 @@ void add_statement_to_block(struct ASTNode * node, struct ASTNode * statement) {
   if ( block && (block->kind == AST_BLOCK) && (statement != NULL) ) {
     int count = block->statement_count;
 
-    if (count < 256) {
+    if (count < BUFFER_SIZE) {
      block->statements[count] = statement;
      block->statement_count = count + 1;
+    } else {
+      printf("error: we are running out of space to add additional statements in block\n");
+      return FAIL;
     }
   }
-  return;
+  return SUCCESS;
 }
 
 // Symbol table
@@ -1351,17 +1480,17 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
   return FAIL;
 }
 
-int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
+enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table) {
   struct ASTNode * node = root;
   if (node == NULL) {
-    return FAIL;
+    return EVAL_FAIL;
   }
 
   if (node->kind == AST_DECLARATION) {
     enum TypeKind declared_variable_type = node->declared_variable_type;
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
       printf("error: declaration must have an identifier.\n");
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     char *identifier = node->left->identifier_name;
@@ -1377,13 +1506,13 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     struct Symbol *symbol = lookup_symbol_current(table, identifier);
     if (symbol) {
       printf("error: redeclaration of identifier %s\n", identifier);
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if (node->right) {
       int ret = eval_expression(node->right, table, &out_value);
       if (ret == FAIL) {
-       return FAIL;
+       return EVAL_FAIL;
       }
     }
 
@@ -1391,7 +1520,7 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
       printf("error: initializer assignment type mismatch for declared identifier %s\n", identifier);
       printf("error: expected %s but found %s type.\n",
         typekind_type_name(declared_variable_type), typekind_type_name(out_value.type));
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if (declared_variable_type == TYPE_FLOAT && out_value.type == TYPE_INT) {
@@ -1406,30 +1535,30 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     } else if (out_value.type == TYPE_FLOAT) {
       printf(" %f\n", out_value.float_value);
     } else {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     store_symbol(table, declared_variable_type, identifier, &out_value);
-    return SUCCESS;
+    return EVAL_OK;
   } else if (node->kind == AST_ASSIGNMENT) {
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
       printf("error: assignment to undeclared identifier %s\n", identifier);
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     struct Value out_value = {0};
     int ret = eval_expression(node->right, table, &out_value);
     if (ret == FAIL) {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if (is_assignment_compatible(symbol->type, out_value.type) == 0) {
       printf("error: assignment type mismatch for declared identifier %s\n", identifier);
       printf("error: expected %s but found %s type.\n",
         typekind_type_name(symbol->type), typekind_type_name(out_value.type));
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if (symbol->type == TYPE_FLOAT && out_value.type == TYPE_INT) {
@@ -1439,73 +1568,78 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     }
 
     symbol->value = out_value;
-    return SUCCESS;
-  } else  if (node->kind == AST_BLOCK) {
-    struct SymbolTable local_semantic_table;
-    initialize_symbol_table(&local_semantic_table, table);
+    return EVAL_OK;
+  } else if (node->kind == AST_BLOCK) {
+    struct SymbolTable local_runtime_table;
+    initialize_symbol_table(&local_runtime_table, table);
 
     for (int c=0; c < node->statement_count; c++) {
       if (node->statements[c] == NULL) {
-        return FAIL;
+        return EVAL_FAIL;
       }
 
-      if (eval_statement(node->statements[c], &local_semantic_table) == FAIL) {
-        return FAIL;
+      enum EvalResult eval_ret = eval_statement(node->statements[c], &local_runtime_table);
+      if (eval_ret == EVAL_FAIL) {
+        return EVAL_FAIL;
+      } else if (eval_ret == EVAL_BREAK) {
+        return EVAL_BREAK;
+      } else if (eval_ret == EVAL_CONTINUE) {
+        return EVAL_CONTINUE;
       }
     }
 
     //print_symbol_table(&local_semantic_table);
-    return SUCCESS;
+    return EVAL_OK;
   } else if (node->kind == AST_IF) {
     if (node->condition == NULL) {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     struct Value expr_value;
     int ret = eval_expression(node->condition, table, &expr_value);
     if (ret == FAIL) {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if (node->then_branch == NULL) {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if ((expr_value.type == TYPE_INT && expr_value.int_value != 0)
       || (expr_value.type == TYPE_FLOAT && expr_value.float_value != 0.0)) {
-      ret = eval_statement(node->then_branch, table);
-      if (ret == FAIL) {
-        return FAIL;
+      enum EvalResult eval_ret = eval_statement(node->then_branch, table);
+      if (eval_ret != EVAL_OK) {
+        return eval_ret;
       }
     } else {
       if (node->else_branch) {
-        ret = eval_statement(node->else_branch, table);
-        if (ret == FAIL) {
-          return FAIL;
+        enum EvalResult eval_ret = eval_statement(node->else_branch, table);
+        if (eval_ret != EVAL_OK) {
+          return eval_ret;
         }
       }
     }
 
-    return SUCCESS;
+    return EVAL_OK;
   } else if (node->kind == AST_WHILE) {
     if (node->condition == NULL) {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if (node->body == NULL) {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     while(1) {
       struct Value expr_value;
       int ret = eval_expression(node->condition, table, &expr_value);
       if (ret == FAIL) {
-        return FAIL;
+        return EVAL_FAIL;
       }
 
       if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
         printf("error: condition type must be numeric\n");
-        return FAIL;
+        return EVAL_FAIL;
       }
 
       if ((expr_value.type == TYPE_INT && expr_value.int_value == 0)
@@ -1513,22 +1647,30 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
         break;
       }
 
-      ret = eval_statement(node->body, table);
-      if (ret == FAIL) {
-        return FAIL;
+      enum EvalResult eval_ret = eval_statement(node->body, table);
+      if (eval_ret == EVAL_FAIL) {
+        return EVAL_FAIL;
+      } else if (eval_ret == EVAL_BREAK) {
+        break;
+      } else if (eval_ret == EVAL_CONTINUE) {
+        continue;
       }
     }
-    return SUCCESS;
+    return EVAL_OK;
+  } else if (node->kind == AST_BREAK) {
+    return EVAL_BREAK;
+  } else if (node->kind == AST_CONTINUE) {
+    return EVAL_CONTINUE;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
       printf("error: print statement missing expression\n");
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     struct Value out_value;
     int ret = eval_expression(node->left, table, &out_value);
     if (ret == FAIL) {
-      return FAIL;
+      return EVAL_FAIL;
     }
 
     if (out_value.type == TYPE_INT) {
@@ -1536,10 +1678,10 @@ int eval_statement(struct ASTNode * root, struct SymbolTable *table) {
     } else if (out_value.type == TYPE_FLOAT) {
       printf("%f\n", out_value.float_value);
     }
-    return SUCCESS; // print statment executed successfully.
+    return EVAL_OK;
   }
 
-  return FAIL;
+  return EVAL_FAIL;
 }
 
 int eval_program(struct ASTNode * node, struct SymbolTable *table) {
@@ -1552,7 +1694,8 @@ int eval_program(struct ASTNode * node, struct SymbolTable *table) {
   }
 
   for (int c=0; c < node->statement_count; c++) {
-    if(eval_statement(node->statements[c], table) == FAIL) {
+    enum EvalResult eval_ret = eval_statement(node->statements[c], table);
+    if(eval_ret != EVAL_OK) {
       return FAIL;
     }
   }
@@ -1819,7 +1962,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
   return FAIL;
 }
 
-int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
+int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx) {
   if (node == NULL) {
     return FAIL;
   }
@@ -1944,7 +2087,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
         return FAIL;
       }
 
-      if (analyze_statement(node->statements[c], &local_semantic_table) == FAIL) {
+      if (analyze_statement(node->statements[c], &local_semantic_table, ctx) == FAIL) {
         return FAIL;
       }
     }
@@ -1984,14 +2127,14 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
 
-    ret = analyze_statement(node->then_branch, table);
+    ret = analyze_statement(node->then_branch, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (node->else_branch != NULL) {
-      ret = analyze_statement(node->else_branch, table);
+      ret = analyze_statement(node->else_branch, table, ctx);
       if (ret == FAIL) {
         node->type_kind = TYPE_ERROR;
         return FAIL;
@@ -2032,9 +2175,38 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
 
-    ret = analyze_statement(node->body, table);
+    // push this loop information to the ctx object
+    struct LoopFrame loop_frame;
+    loop_frame.kind = AST_WHILE;
+    loop_frame.prev = ctx->current_loop;
+    ctx->current_loop = &loop_frame;
+
+    ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
+      ctx->current_loop = ctx->current_loop->prev;
+      return FAIL;
+    }
+
+    // pop the loop information from the ctx before returning
+    ctx->current_loop = ctx->current_loop->prev;
+
+    node->type_kind = TYPE_UNUSED;
+    return SUCCESS;
+  } else if (node->kind == AST_BREAK) {
+    // if ctx object does not have a loop_frame then this is a sematic error
+    // since break can not be out side the loop construct, while, for, do-while
+    if (ctx->current_loop == NULL) {
+      printf("error: break statement not inside a loop, semantic error\n");
+      return FAIL;
+    }
+    node->type_kind = TYPE_UNUSED;
+    return SUCCESS;
+  } else if (node->kind == AST_CONTINUE) {
+    // if ctx object does not have a loop_frame then this is a sematic error
+    // since continue can not be out side the loop construct, while, for, do-while
+    if (ctx->current_loop == NULL) {
+      printf("error: continue statement not inside a loop, semantic error\n");
       return FAIL;
     }
     node->type_kind = TYPE_UNUSED;
@@ -2067,7 +2239,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table) {
   return FAIL;
 }
 
-int analyze_program(struct ASTNode *node, struct SymbolTable *table) {
+int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx) {
   if (node == NULL) {
     printf("error: program node is NULL\n");
     return FAIL;
@@ -2083,7 +2255,7 @@ int analyze_program(struct ASTNode *node, struct SymbolTable *table) {
       return FAIL;
     }
 
-    if (analyze_statement(node->statements[c], table) == FAIL) {
+    if (analyze_statement(node->statements[c], table, ctx) == FAIL) {
       return FAIL;
     }
   }
@@ -2601,6 +2773,10 @@ struct ASTNode * parse_declaration(struct Parser *p) {
   if (is_current_token(p, TOKEN_EQUAL)) {
     expect_token(p, TOKEN_EQUAL);
     rightValue = parse_expression(p);
+    if (rightValue == NULL) {
+      p->has_error = 1;
+      return NULL;
+    }
   }
 
   expect_token(p, TOKEN_SEMICOLON);
@@ -2637,11 +2813,21 @@ struct ASTNode * parse_print_stmt(struct Parser *p) {
 
   if (is_current_token(p, TOKEN_LPAREN)) {
     parse_lparen(p);
+    if ( p->has_error ) {
+      printf("error: expected '(' after PRINT\n");
+      return NULL;
+    }
     struct ASTNode * expr = parse_expression(p);
     if (expr == NULL) {
+      printf("error: expected input value to print\n");
       p->has_error = 1;
+      return NULL;
     } else {
       parse_rparen(p);
+      if ( p->has_error ) {
+        printf("error: expected ')' for PRINT statement\n");
+        return NULL;
+      }
     }
 
     expect_token(p, TOKEN_SEMICOLON);
@@ -2667,7 +2853,6 @@ struct ASTNode * parse_block(struct Parser *p) {
     return NULL;
   }
 
-  // create a AST_BLOCK
   struct ASTNode * block = createBlockNode();
   if (block == NULL) {
     return NULL;
@@ -2681,7 +2866,7 @@ struct ASTNode * parse_block(struct Parser *p) {
 
   while (p->has_error == 0) {
     if (is_current_token(p, TOKEN_EOF)) {
-      printf("error: expected } before of end of input\n");
+      printf("error: expected } before end of input\n");
       p->has_error=1;
       free (block);
       return NULL;
@@ -2690,7 +2875,14 @@ struct ASTNode * parse_block(struct Parser *p) {
     if (!is_current_token(p, TOKEN_RBRACE)) {
       struct ASTNode *statement = parse_statement(p);
       if (statement) {
-        add_statement_to_block(block, statement);
+        int ret = add_statement_to_block(block, statement);
+        if (ret == FAIL) {
+          p->has_error=1;
+          return NULL;
+        }
+      } else {
+        p->has_error=1;
+        return NULL;
       }
       continue;
     }
@@ -2782,12 +2974,6 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
     return NULL;
   }
 
-  if (!is_current_token(p, TOKEN_LPAREN)) {
-    printf("error: expected '(' after IF\n");
-    p->has_error = 1;
-    return NULL;
-  }
-
   // check and consume opening parenthesis
   parse_lparen(p);
   if ( p->has_error ) {
@@ -2861,7 +3047,56 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
   return node;
 }
 
-// statement -> if_statement | block | declaration | assignment | print_statement
+// continue -> continue
+struct ASTNode * parse_continue_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  // consume continue token
+  expect_token(p, TOKEN_CONTINUE);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  struct ASTNode * node = createContinueNode();
+  if (node == NULL) {
+    p->has_error = 1;
+  }
+
+  return node;
+}
+// break -> break
+struct ASTNode * parse_break_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  // consume break token
+  expect_token(p, TOKEN_BREAK);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  struct ASTNode * node = createBreakNode();
+  if (node == NULL) {
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
+// statement -> declaration | print | block | if | while | break | continue | assignment
 struct ASTNode * parse_statement(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -2878,6 +3113,10 @@ struct ASTNode * parse_statement(struct Parser *p) {
     node = parse_if_stmt(p);
   } else if (is_current_token(p, TOKEN_WHILE)) {
     node = parse_while_stmt(p);
+  } else if (is_current_token(p, TOKEN_BREAK)) {
+    node = parse_break_stmt(p);
+  } else if (is_current_token(p, TOKEN_CONTINUE)) {
+    node = parse_continue_stmt(p);
   } else {
     node = parse_assignment(p);
   }
@@ -2901,7 +3140,11 @@ struct ASTNode * parse_program(struct Parser *p) {
     }
 
     // add ASTNode representing a statement to the list (program node)
-    add_statement_to_program(program, statement);
+    int ret = add_statement_to_program(program, statement);
+    if (ret == FAIL) {
+      p->has_error = 1;
+      return NULL;
+    }
   }
 
   if (p->has_error) {
@@ -3035,16 +3278,22 @@ int main(void) {
   // Lexer or Tokenizer
   printf("\n\n--> Tokenizer PHASE: Start\n");
   int result = tokenize(icode, tokens, &token_count);
-
-  printf("--> Print tokens--\n");
-  for (int i = 0; i < token_count; i++) {
-    print_token(tokens[i]);
-  }
   if (result == FAIL) {
-    printf("--> Tokenizer PHASE: FAILED\n");
+    printf("--> TOKENIZE PHASE: FAILED\n");
     exit(-1);
+  } else {
+    /*
+    printf("--> Print tokens--\n");
+    for (int i = 0; i < token_count; i++) {
+      print_token(tokens[i]);
+    }
+    if (result == FAIL) {
+      printf("--> Tokenizer PHASE: FAILED\n");
+      exit(-1);
+    }
+    */
+    printf("--> Tokenizer PHASE: PASS\n");
   }
-  printf("--> Tokenizer PHASE: PASS\n");
 
   // Parser
   struct Parser p;
@@ -3064,15 +3313,19 @@ int main(void) {
   print_token(current_token(&p));
 
   printf("\nPrint AST Tree after PARSING PHASE:\n ");
-  print_ast_tree(program, 0);
+  //print_ast_tree(program, 0);
 
   // Check sematics of the program before we evaluate it
   printf("\n\n--> SEMANTIC CHECK PHASE: Start\n");
   printf("Initialize symbol table for Semantic check\n");
   struct SymbolTable semantic_table;
   initialize_symbol_table(&semantic_table, NULL);
-  print_symbol_table(&semantic_table);
-  result = analyze_program(program, &semantic_table);
+  //print_symbol_table(&semantic_table);
+
+  struct SemanticContext semantic_ctx;
+  semantic_ctx.current_loop = NULL;
+
+  result = analyze_program(program, &semantic_table, &semantic_ctx);
 
   if (result == 0) {
     printf("--> SEMANTIC CHECK PHASE: FAILED\n");
@@ -3080,10 +3333,10 @@ int main(void) {
   }
 
   printf("Global symbol table after semantic phase\n");
-  print_symbol_table(&semantic_table);
+  //print_symbol_table(&semantic_table);
 
   printf("\nPrint AST Tree after SEMANTIC CHECK PHASE:\n ");
-  print_ast_tree(program, 0);
+  //print_ast_tree(program, 0);
   printf("--> SEMANTIC CHECK PHASE: PASS\n");
 
   // Program is semantically okay so go ahead and evaluate it
@@ -3091,7 +3344,7 @@ int main(void) {
   printf("Initialize symbol table for Evaluation check\n");
   struct SymbolTable runtime_table;
   initialize_symbol_table(&runtime_table, NULL);
-  print_symbol_table(&runtime_table);
+  //print_symbol_table(&runtime_table);
   result = eval_program(program, &runtime_table);
   printf("Global symbol table after evaluation phase\n");
   print_symbol_table(&runtime_table);
