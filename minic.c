@@ -1148,8 +1148,10 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
     out_value->type = node->type_kind;
     if (node->type_kind == TYPE_INT) {
       out_value->int_value = node->number_value;
+      out_value->float_value = 0.0;
     } else if (node->type_kind == TYPE_FLOAT) {
       out_value->float_value = node->float_number_value;
+      out_value->int_value = 0;
     } else {
       return FAIL;
     }
@@ -1166,16 +1168,20 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
     if (node->operator_kind == TOKEN_MINUS) {
       if (result.type == TYPE_INT) {
         out_value->int_value = -(result.int_value);
+        out_value->float_value = 0.0;
       } else if (result.type == TYPE_FLOAT) {
         out_value->float_value = -(result.float_value);
+        out_value->int_value = 0;
       } else {
         return FAIL;
       }
     } else if (node->operator_kind == TOKEN_PLUS) {
       if (result.type == TYPE_INT) {
         out_value->int_value = result.int_value;
+        out_value->float_value = 0.0;
       } else if (result.type == TYPE_FLOAT) {
         out_value->float_value = result.float_value;
+        out_value->int_value = 0;
       } else {
         return FAIL;
       }
@@ -1221,6 +1227,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
 
     if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER
       || operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL
+      || operator_kind == TOKEN_LESS_EQUAL  || operator_kind == TOKEN_GREATER_EQUAL
       || operator_kind == TOKEN_ANDAND      || operator_kind == TOKEN_OROR) {
       out_value->type = TYPE_INT;
     }
@@ -1253,9 +1260,6 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
       } else if (operator_kind == TOKEN_BANG_EQUAL) {
         out_value->int_value = (leftNum.int_value != rightNum.int_value);
       } else if (operator_kind == TOKEN_ANDAND) {
-        out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
         int ret = (leftNum.int_value != 0);
         if (ret) {
           ret = (rightNum.int_value != 0);
@@ -1264,9 +1268,6 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = ret;
 
       } else if (operator_kind == TOKEN_OROR) {
-        out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
 
         int ret = (leftNum.int_value != 0);
         if (ret == 0) {
@@ -1275,8 +1276,6 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = ret;
 
       } else if (operator_kind == TOKEN_PERCENT) {
-        out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         if (rightNum.int_value == 0) {
           printf("error: modulo by zero.\n");
           return FAIL;
@@ -1304,32 +1303,24 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->float_value = leftNum.float_value / rightNum.float_value;
       } else if (operator_kind == TOKEN_LESS) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value < rightNum.float_value);
       } else if (operator_kind == TOKEN_LESS_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value <= rightNum.float_value);
       } else if (operator_kind == TOKEN_GREATER) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value > rightNum.float_value);
       } else if (operator_kind == TOKEN_GREATER_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value >= rightNum.float_value);
       } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value == rightNum.float_value);
       } else if (operator_kind == TOKEN_BANG_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value != rightNum.float_value);
       } else if (operator_kind == TOKEN_ANDAND) {
         out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
         int ret = (leftNum.float_value != 0.0);
         if (ret) {
           ret = (rightNum.float_value != 0.0);
@@ -1339,8 +1330,6 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
 
       } else if (operator_kind == TOKEN_OROR) {
         out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
 
         int ret = (leftNum.float_value != 0.0);
         if (ret == 0) {
@@ -1370,32 +1359,24 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->float_value = (double)leftNum.int_value / rightNum.float_value;
       } else if (operator_kind == TOKEN_LESS) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value < rightNum.float_value);
       } else if (operator_kind == TOKEN_LESS_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value <= rightNum.float_value);
       } else if (operator_kind == TOKEN_GREATER) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value > rightNum.float_value);
       } else if (operator_kind == TOKEN_GREATER_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value >= rightNum.float_value);
       } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value == rightNum.float_value);
       } else if (operator_kind == TOKEN_BANG_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = ((double)leftNum.int_value != rightNum.float_value);
       } else if (operator_kind == TOKEN_ANDAND) {
         out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
         int ret = (leftNum.int_value != 0);
         if (ret) {
           ret = (rightNum.float_value != 0.0);
@@ -1405,9 +1386,6 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
 
       } else if (operator_kind == TOKEN_OROR) {
         out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
-
         int ret = (leftNum.int_value != 0);
         if (ret == 0) {
           ret = (rightNum.float_value != 0.0);
@@ -1436,32 +1414,24 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->float_value = leftNum.float_value / (double)rightNum.int_value;
       } else if (operator_kind == TOKEN_LESS) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value < (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_LESS_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value <= (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_GREATER) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value > (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_GREATER_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value >= (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_EQUAL_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value == (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_BANG_EQUAL) {
         out_value->type = TYPE_INT;
-        out_value->float_value = 0.0;
         out_value->int_value = (leftNum.float_value != (double)rightNum.int_value);
       } else if (operator_kind == TOKEN_ANDAND) {
         out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
         int ret = (leftNum.float_value != 0.0);
         if (ret) {
           ret = (rightNum.int_value != 0);
@@ -1471,9 +1441,6 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
 
       } else if (operator_kind == TOKEN_OROR) {
         out_value->type = TYPE_INT;
-        out_value->int_value = 0;
-        out_value->float_value = 0.0;
-
         int ret = (leftNum.float_value != 0.0);
         if (ret == 0) {
           ret = (rightNum.int_value != 0);
@@ -1515,7 +1482,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
   if (node->kind == AST_DECLARATION) {
     enum TypeKind declared_variable_type = node->declared_variable_type;
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: declaration must have an identifier.\n");
+      printf("runtime error: declaration must have an identifier.\n");
       return EVAL_FAIL;
     }
 
@@ -1531,7 +1498,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
 
     struct Symbol *symbol = lookup_symbol_current(table, identifier);
     if (symbol) {
-      printf("error: redeclaration of identifier %s\n", identifier);
+      printf("runtime error: redeclaration of identifier %s\n", identifier);
       return EVAL_FAIL;
     }
 
@@ -1543,8 +1510,8 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     }
 
     if (is_assignment_compatible(declared_variable_type, out_value.type) == 0) {
-      printf("error: initializer assignment type mismatch for declared identifier %s\n", identifier);
-      printf("error: expected %s but found %s type.\n",
+      printf("runtime error: initializer assignment type mismatch for declared identifier %s\n", identifier);
+      printf("runtime error: expected %s but found %s type.\n",
         typekind_type_name(declared_variable_type), typekind_type_name(out_value.type));
       return EVAL_FAIL;
     }
@@ -1555,7 +1522,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       out_value.int_value = 0;
     }
 
-    //printf("declared %s with initial value", identifier);
+    printf("declared %s with initial value", identifier);
     if (out_value.type == TYPE_INT) {
       printf(" %d\n", out_value.int_value);
     } else if (out_value.type == TYPE_FLOAT) {
@@ -1564,13 +1531,14 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       return EVAL_FAIL;
     }
 
+    // commit to the runtime symbol map
     store_symbol(table, declared_variable_type, identifier, &out_value);
     return EVAL_OK;
   } else if (node->kind == AST_ASSIGNMENT) {
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
-      printf("error: assignment to undeclared identifier %s\n", identifier);
+      printf("runtime error: assignment targeted to undeclared identifier '%s'\n", identifier);
       return EVAL_FAIL;
     }
 
@@ -1581,8 +1549,8 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     }
 
     if (is_assignment_compatible(symbol->type, out_value.type) == 0) {
-      printf("error: assignment type mismatch for declared identifier %s\n", identifier);
-      printf("error: expected %s but found %s type.\n",
+      printf("runtime error: assignment type mismatch for declared identifier %s\n", identifier);
+      printf("runtime error: expected %s but found %s type.\n",
         typekind_type_name(symbol->type), typekind_type_name(out_value.type));
       return EVAL_FAIL;
     }
@@ -1743,10 +1711,7 @@ int is_assignment_compatible(enum TypeKind target_type, enum TypeKind source_typ
     return 1;
   }
 
-  if ((target_type == TYPE_INT) && (source_type == TYPE_FLOAT)) {
-    return 0;
-  }
-
+  // Any other combination is incompatible
   return 0;
 }
 
@@ -1975,6 +1940,14 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
+    } else if (operator_kind == TOKEN_PERCENT) {
+      if (leftType == TYPE_INT && rightType  == TYPE_INT) {
+        return TYPE_INT;
+      } else {
+        printf("error: invalid operand to binary expression modulo (%%) requires integer types.\n");
+        node->type_kind = TYPE_ERROR;
+        return FAIL;
+      }
     } else {
       int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
       int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
@@ -2002,27 +1975,28 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     enum TypeKind declared_variable_type = node->declared_variable_type;
 
     if (is_supported_type(declared_variable_type) == 0) {
-      printf("error: currently minic found unsupported type declaration: %s type.\n",
+      printf("error: unsupported data type declaration: %s type.\n",
         typekind_type_name(declared_variable_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: declaration must have an identifier\n");
+      printf("error: declarationi statement must target a valid variable identifier\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     char *identifier = node->left->identifier_name;
+
     struct Symbol *symbol = lookup_symbol_current(table, identifier);
     if (symbol) {
-      printf("error: redeclaration of identifier %s\n", identifier);
+      printf("error: redeclaration of identifier '%s' is illegal in this scope.\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    if (node->right) {
+    if (node->right != NULL) {
       int ret = analyze_expression(node->right, table);
       if (ret == FAIL) {
         node->type_kind = TYPE_ERROR;
@@ -2037,8 +2011,8 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       }
 
       if (is_assignment_compatible(declared_variable_type, rhs_expr_type) == 0) {
-        printf("error: intializer assignment type mismatch for declared identifier %s\n", identifier);
-        printf("error: expected %s but found %s type.\n",
+        printf("runtime error: intializer assignment type mismatch for identifier '%s'\n", identifier);
+        printf("runtime error: expected %s but found experssion type %s\n",
           typekind_type_name(declared_variable_type), typekind_type_name(rhs_expr_type));
         node->type_kind = TYPE_ERROR;
         return FAIL;
@@ -2046,6 +2020,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     node->left->type_kind = declared_variable_type;
+
     struct Value value = {0};
     value.type = declared_variable_type;
 
@@ -2059,10 +2034,10 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     store_symbol(table, declared_variable_type, identifier, &value);
     node->type_kind = declared_variable_type;
     return SUCCESS;
-  } else  if (node->kind == AST_ASSIGNMENT) {
+  } else if (node->kind == AST_ASSIGNMENT) {
 
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: left side of an assignment statement must be an identifier\n");
+      printf("runtime error: left side of an assignment statement must be an identifier\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2070,13 +2045,13 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
-      printf("error: assignment to undeclared identifier %s\n", identifier);
+      printf("runtime error: assignment to undeclared identifier %s\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (is_supported_type(symbol->type) == 0) {
-      printf("error: unsupported type found: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
+      printf("runtime error: unsupported type found: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2084,7 +2059,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     node->left->type_kind = symbol->type;
 
     if (node->right == NULL) {
-      printf("error: missing assignment value for identifier %s\n", identifier);
+      printf("runtime error: missing assignment value for identifier %s\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2103,8 +2078,8 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     if (is_assignment_compatible(symbol->type, rhs_expr_type) == 0) {
-      printf("error: assignment type mismatch for identifier %s\n", identifier);
-      printf("error: expected %s but found %s type.\n",
+      printf("runtime error: assignment type mismatch for identifier %s\n", identifier);
+      printf("runtime error: expected %s but found %s type.\n",
         typekind_type_name(symbol->type), typekind_type_name(rhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
@@ -2112,7 +2087,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     node->type_kind = symbol->type;
     return SUCCESS;
-  } else  if (node->kind == AST_BLOCK) {
+  } else if (node->kind == AST_BLOCK) {
     struct SymbolTable local_semantic_table;
     initialize_symbol_table(&local_semantic_table, table);
 
@@ -2825,7 +2800,6 @@ struct ASTNode * parse_break_stmt(struct Parser *p) {
   return node;
 }
 
-
 // assignment -> IDENTIFIER EQUAL expression SEMICOLON
 struct ASTNode * parse_assignment(struct Parser *p) {
   if (p->has_error) {
@@ -2869,59 +2843,6 @@ struct ASTNode * parse_assignment(struct Parser *p) {
   if (node == NULL) {
     freeASTNode(left);
     freeASTNode(right);
-    p->has_error = 1;
-  }
-
-  return node;
-}
-
-// declaration -> datatype IDENTIFIER SEMICOLON
-//              | datatype IDENTIFIER EQUAL expression SEMICOLON
-// OR
-// declaration -> datatype IDENTIFIER ("=" expression)? SEMICOLON -- compact grammer version
-struct ASTNode * parse_declaration(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  enum TypeKind dataType = parse_datatype(p);
-
-  if (dataType == TYPE_ERROR || p->has_error) {
-    return NULL;
-  }
-
-  struct ASTNode * identifier = parse_identifier(p);
-  if ( identifier == NULL ) {
-    return NULL;
-  }
-
-  struct ASTNode * rightValue = NULL;
-
-  if (is_current_token(p, TOKEN_EQUAL)) {
-    expect_token(p, TOKEN_EQUAL);
-    if (p->has_error) {
-      freeASTNode(identifier);
-      return NULL;
-    }
-    rightValue = parse_expression(p);
-    if (rightValue == NULL) {
-      freeASTNode(identifier);
-      p->has_error = 1;
-      return NULL;
-    }
-  }
-
-  expect_token(p, TOKEN_SEMICOLON);
-  if ( p->has_error ) {
-    freeASTNode(identifier);
-    freeASTNode(rightValue);
-    return NULL;
-  }
-
-  struct ASTNode * node = createDeclarationNode(dataType, identifier, rightValue);
-  if (node == NULL) {
-    freeASTNode(identifier);
-    freeASTNode(rightValue);
     p->has_error = 1;
   }
 
@@ -3204,6 +3125,60 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
 // for_update -> assignment_without_semicolon
 // for_init -> assignment_without_semicolon
 // for_stmt -> for ( for_init ; expr ; for_update ) statement
+
+// declaration -> datatype IDENTIFIER SEMICOLON
+//              | datatype IDENTIFIER EQUAL expression SEMICOLON
+// OR
+// declaration -> datatype IDENTIFIER ("=" expression)? SEMICOLON -- compact grammer version
+struct ASTNode * parse_declaration(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  enum TypeKind dataType = parse_datatype(p);
+
+  if (dataType == TYPE_ERROR || p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * identifier = parse_identifier(p);
+  if ( identifier == NULL ) {
+    return NULL;
+  }
+
+  struct ASTNode * rightValue = NULL;
+
+  if (is_current_token(p, TOKEN_EQUAL)) {
+    expect_token(p, TOKEN_EQUAL);
+    if (p->has_error) {
+      freeASTNode(identifier);
+      return NULL;
+    }
+    rightValue = parse_expression(p);
+    if (rightValue == NULL) {
+      freeASTNode(identifier);
+      p->has_error = 1;
+      return NULL;
+    }
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if ( p->has_error ) {
+    freeASTNode(identifier);
+    freeASTNode(rightValue);
+    return NULL;
+  }
+
+  struct ASTNode * node = createDeclarationNode(dataType, identifier, rightValue);
+  if (node == NULL) {
+    freeASTNode(identifier);
+    freeASTNode(rightValue);
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
 
 // statement -> declaration | print | block | if | while | break | continue | for_stmt | assignment
 struct ASTNode * parse_statement(struct Parser *p) {
