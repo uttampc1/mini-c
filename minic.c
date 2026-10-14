@@ -1,37 +1,6 @@
 /******************************************************************************
-miniC currently supports only declaration and assignment statements.
-miniC currently supports only the int type.
-Variables must be declared before they are used.
-A variable cannot be redeclared.
-The left-hand side of an assignment must be an identifier.
-The identifier being assigned to must be already declared.
-A declaration may optionally include an initializer expression.
-Any identifier used in an expression must be already declared. That covers
-- declaration initializer expressions
-- assignment expressions
-- print_statment (this is explicit AST Node to print result
-
-=============
-GRAMMER rules
-=============
-program -> statements*
-statement -> declaration | assignment | print_statement
-declaration -> INT IDENTIFIER ("=" expression)? SEMICOLON
-assignment -> IDENTIFIER EQUAL expression SEMICOLON
-print_statement -> PRINT LPAREN expression RPAREN SEMICOLON
-
-expression -> equality
-equality -> comparison ((EQUAL_EQUAL | BANG_EQUAL) comparison)*
-comparison -> term ((LESS | GREATER) term)*
-term -> factor ((PLUS | MINUS) factor)*
-factor -> unary ((STAR | SLASH) unary)*
-unary -> ('-' | '+') unary | primary
-primary -> NUMBER | IDENTIFIER | LPAREN expression RPAREN
-
-
+miniC - 
 ******************************************************************************/
-
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -748,6 +717,14 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
 }
 
 // Parser
+int is_next_token(struct Parser *p, enum TokenKind type) {
+  struct Token t = p->tokens[p->pos+1];
+  if (t.type == type) {
+    return 1;
+  }
+  return 0;
+}
+
 int is_current_token(struct Parser *p, enum TokenKind type) {
   struct Token t = p->tokens[p->pos];
   if (t.type == type) {
@@ -979,6 +956,55 @@ struct ASTNode * createProgramNode() {
   return node;
 }
 
+void freeASTNode(struct ASTNode * node) {
+  if (node == NULL) {
+    return;
+  }
+
+  if (node->left != NULL) {
+    freeASTNode(node->left);
+  }
+  if (node->right != NULL) {
+    freeASTNode(node->right);
+  }
+  if (node->condition != NULL) {
+    freeASTNode(node->condition);
+  }
+  if (node->then_branch != NULL) {
+    freeASTNode(node->then_branch);
+  }
+  if (node->else_branch != NULL) {
+    freeASTNode(node->else_branch);
+  }
+  if (node->body != NULL) {
+    freeASTNode(node->body);
+  }
+
+  if (node->statement_count) {
+    for(int i=0; i < node->statement_count; i++) {
+      if (node->statements[i] != NULL) {
+        freeASTNode(node->statements[i]);
+      }
+    }
+  }
+
+  free(node);
+}
+
+void freeSymbolTableContents(struct SymbolTable *table) {
+  if (table == NULL) {
+    return;
+  }
+
+  for (int i=0; i < table->count; i++) {
+    if (table->symbols[i].name != NULL) {
+      free(table->symbols[i].name);
+      table->symbols[i].name = NULL;
+    }
+  }
+
+  table->count = 0;
+}
 
 // helper: add new statement to the program node.
 int add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) {
@@ -1529,7 +1555,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       out_value.int_value = 0;
     }
 
-    printf("declared %s with initial value", identifier);
+    //printf("declared %s with initial value", identifier);
     if (out_value.type == TYPE_INT) {
       printf(" %d\n", out_value.int_value);
     } else if (out_value.type == TYPE_FLOAT) {
@@ -1575,20 +1601,25 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
 
     for (int c=0; c < node->statement_count; c++) {
       if (node->statements[c] == NULL) {
+        freeSymbolTableContents(&local_runtime_table);
         return EVAL_FAIL;
       }
 
       enum EvalResult eval_ret = eval_statement(node->statements[c], &local_runtime_table);
       if (eval_ret == EVAL_FAIL) {
+        freeSymbolTableContents(&local_runtime_table);
         return EVAL_FAIL;
       } else if (eval_ret == EVAL_BREAK) {
+        freeSymbolTableContents(&local_runtime_table);
         return EVAL_BREAK;
       } else if (eval_ret == EVAL_CONTINUE) {
+        freeSymbolTableContents(&local_runtime_table);
         return EVAL_CONTINUE;
       }
     }
 
-    //print_symbol_table(&local_semantic_table);
+    //print_symbol_table(&local_runtime_table);
+    freeSymbolTableContents(&local_runtime_table); // CLEANUP on successful block exiy
     return EVAL_OK;
   } else if (node->kind == AST_IF) {
     if (node->condition == NULL) {
@@ -2017,12 +2048,15 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     node->left->type_kind = declared_variable_type;
     struct Value value = {0};
     value.type = declared_variable_type;
+
+    // miniC rule: declarations without initializer get default 0 / 0.0
     if (declared_variable_type == TYPE_INT) {
       value.int_value = 0;
     } else if (declared_variable_type == TYPE_FLOAT) {
       value.float_value = 0.0;
     }
-    store_symbol(table, declared_variable_type, identifier, &value); // miniC rule: declarations without initializer get default 0 / 0.0
+
+    store_symbol(table, declared_variable_type, identifier, &value);
     node->type_kind = declared_variable_type;
     return SUCCESS;
   } else  if (node->kind == AST_ASSIGNMENT) {
@@ -2084,16 +2118,19 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     for (int c=0; c < node->statement_count; c++) {
       if (node->statements[c] == NULL) {
+        freeSymbolTableContents(&local_semantic_table);
         return FAIL;
       }
 
       if (analyze_statement(node->statements[c], &local_semantic_table, ctx) == FAIL) {
+        freeSymbolTableContents(&local_semantic_table);
         return FAIL;
       }
     }
 
-    //printf("Local symbol table after analyzing statement.\n");
+    printf("Local symbol table after analyzing statement.\n");
     print_symbol_table(&local_semantic_table);
+    freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
     return SUCCESS;
   } else if (node->kind == AST_IF) {
     if (node->condition == NULL) {
@@ -2288,20 +2325,15 @@ enum TypeKind parse_datatype(struct Parser *p) {
 
   if (is_current_token(p, TOKEN_INT)) {
     expect_token(p, TOKEN_INT);
-    if ( p->has_error ) {
-      return TYPE_ERROR;
-    }
     return TYPE_INT;
-  } else if (is_current_token(p, TOKEN_FLOAT)) {
+  } 
+
+  if (is_current_token(p, TOKEN_FLOAT)) {
     expect_token(p, TOKEN_FLOAT);
-    if ( p->has_error ) {
-      return TYPE_ERROR;
-    }
     return TYPE_FLOAT;
-  } else {
-    p->has_error = 1;
-    printf("error: unsupported data type found\n");
-  }
+  } 
+
+  //printf("error: unsupported data type found\n");
   return TYPE_ERROR;
 }
 
@@ -2314,14 +2346,16 @@ struct ASTNode * parse_number(struct Parser *p) {
     return NULL;
   }
 
-  struct ASTNode * node = NULL;
   if (is_current_token(p, TOKEN_NUMBER))  {
     struct Token token = p->tokens[p->pos];
+
     int bytesToCopy = (token.length >= BUFFER_SIZE) ? BUFFER_SIZE-1 : token.length;
     char value[BUFFER_SIZE];
     strncpy(value, token.start, bytesToCopy);
     value[bytesToCopy] = '\0';
+
     advance_token(p);
+
     // Check if the input string contains "." decimal, then it's a TYPE_FLOAT otherwise TYPE_INT
     enum TypeKind numberType = TYPE_INT;
     for (int i=0; i < bytesToCopy; i++) {
@@ -2330,14 +2364,17 @@ struct ASTNode * parse_number(struct Parser *p) {
         break;
       }
     }
-    node = createNumberNode(numberType, value);
+
+    struct ASTNode * node = createNumberNode(numberType, value);
     if (node == NULL) {
       p->has_error = 1;
-      printf("error: failed to create number node\n");
+      return NULL;
     }
+
+    return node;
   }
 
-  return node;
+  return NULL;
 }
 
 // IDENTIFIER -> x | _
@@ -2347,25 +2384,25 @@ struct ASTNode * parse_identifier(struct Parser *p) {
     return NULL;
   }
 
-  struct ASTNode * node = NULL;
   if (is_current_token(p, TOKEN_IDENTIFIER))  {
     struct Token token = p->tokens[p->pos];
+
     int bytesToCopy = (token.length >= BUFFER_SIZE) ? BUFFER_SIZE-1 : token.length;
     char name[BUFFER_SIZE];
     strncpy(name, token.start, bytesToCopy);
     name[bytesToCopy] = '\0';
+
     advance_token(p);
-    node = createIdentifierNode(name);
+
+    struct ASTNode * node = createIdentifierNode(name);
     if (node == NULL) {
       p->has_error = 1;
-    } else {
-      return node;
+      return NULL;
     }
-  } else {
-    p->has_error = 1;
-  }
 
-  printf("Expected an identifier\n");
+    return node;
+  } 
+
   return NULL;
 }
 
@@ -2406,18 +2443,24 @@ struct ASTNode * parse_unary(struct Parser *p) {
     return NULL;
   }
 
-  if ( is_current_token(p, TOKEN_MINUS) || is_current_token(p, TOKEN_PLUS) || is_current_token(p, TOKEN_BANG)) {
+  if (is_current_token(p, TOKEN_MINUS) || is_current_token(p, TOKEN_PLUS) || is_current_token(p, TOKEN_BANG)) {
     struct Token token = current_token(p);
     advance_token(p);
     struct ASTNode * child = parse_unary(p);
     if ( child == NULL ) {
-      p->has_error = 1;
+      if (p->has_error == 0) {
+        p->has_error = 1;
+        printf("error: missing operand expression following '%s' unary operator\n", token_type_name(token.type));
+      } else {
+        printf("error: invalid operand expression following '%s' unary operator\n", token_type_name(token.type));
+      }
       return NULL;
     }
 
     struct ASTNode * node = createUnaryNode(token.type);
     if (node == NULL) {
       p->has_error = 1;
+      freeASTNode(child);
       return NULL;
     }
 
@@ -2441,7 +2484,6 @@ struct ASTNode * parse_factor(struct Parser *p) {
 
   left = parse_unary(p);
   if (left == NULL) {
-    p->has_error = 1;
     return NULL;
   }
 
@@ -2457,26 +2499,27 @@ struct ASTNode * parse_factor(struct Parser *p) {
       break;
     }
 
-    if ( p->has_error) {
-      break;
-    }
-
     struct ASTNode * right = parse_unary(p);
     if (right == NULL) {
-      p->has_error = 1;
-      break;
+      if (p->has_error == 0) {
+        p->has_error = 1;
+        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+      } else {
+        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+      }
+      freeASTNode(left);
+      return NULL;
     }
 
     struct ASTNode * node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
+      freeASTNode(left);
+      freeASTNode(right);
+      return NULL;
     } else {
       left = node;
     }
-  }
-
-  if (p->has_error) {
-    return NULL;
   }
 
   return left;
@@ -2504,30 +2547,30 @@ struct ASTNode * parse_term(struct Parser *p) {
       break;
     }
 
-    if ( p->has_error) {
-      break;
-    }
-
     struct ASTNode * right = parse_factor(p);
     if (right == NULL) {
-      p->has_error = 1;
-      break;
+      if (p->has_error == 0) {
+        p->has_error = 1;
+        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+      } else {
+        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+      }
+      freeASTNode(left);
+      return NULL;
     }
 
     struct ASTNode * node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
+      freeASTNode(left);
+      freeASTNode(right);
+      return NULL;
     } else {
       left = node;
     }
   }
 
-  if (p->has_error) {
-    return NULL;
-  }
-
   return left;
-
 }
 
 // comparison -> term ((LESS | GREATER | LESS_OR_EQUAL | GREATER_OR_EQUAL) term)*
@@ -2556,26 +2599,27 @@ struct ASTNode * parse_comparison(struct Parser *p) {
       break;
     }
 
-    if ( p->has_error) {
-      break;
-    }
-
     struct ASTNode * right = parse_term(p);
     if (right == NULL) {
-      p->has_error = 1;
-      break;
+      if (p->has_error == 0) {
+        p->has_error = 1;
+        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+      } else {
+        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+      }
+      freeASTNode(left);
+      return NULL;
     }
 
     struct ASTNode * node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
+      freeASTNode(left);
+      freeASTNode(right);
+      return NULL;
     } else {
       left = node;
     }
-  }
-
-  if (p->has_error) {
-    return NULL;
   }
 
   return left;
@@ -2603,26 +2647,27 @@ struct ASTNode * parse_equality(struct Parser *p) {
       break;
     }
 
-    if ( p->has_error) {
-      break;
-    }
-
     struct ASTNode * right = parse_comparison(p);
     if (right == NULL) {
-      p->has_error = 1;
-      break;
+      if (p->has_error == 0) {
+        p->has_error = 1;
+        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+      } else {
+        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+      }
+      freeASTNode(left);
+      return NULL;
     }
 
     struct ASTNode * node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
+      freeASTNode(left);
+      freeASTNode(right);
+      return NULL;
     } else {
       left = node;
     }
-  }
-
-  if (p->has_error) {
-    return NULL;
   }
 
   return left;
@@ -2649,14 +2694,23 @@ struct ASTNode * parse_logical_and(struct Parser *p) {
 
     struct ASTNode * right = parse_equality(p);
     if (right == NULL) {
-      p->has_error = 1;
-      break;
+      if (p->has_error == 0) {
+        p->has_error = 1;
+        printf("error: missing expression on right-hand side of '&&' operator\n");
+      } else {
+        printf("error: invalid expression following '&&' operator\n");
+      }
+      freeASTNode(left);
+      return NULL;
     }
 
     struct ASTNode * node = NULL;
     node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
+      freeASTNode(left);
+      freeASTNode(right);
+      return NULL;
     } else {
       left = node;
     }
@@ -2685,14 +2739,23 @@ struct ASTNode * parse_logical_or(struct Parser *p) {
 
     struct ASTNode * right = parse_logical_and(p);
     if (right == NULL) {
-      p->has_error = 1;
-      break;
+      if (p->has_error == 0) {
+        p->has_error = 1;
+        printf("error: missing expression on right-hand side of '||' operator\n");
+      } else {
+        printf("error: invalid expression following '||' operator\n");
+      }
+      freeASTNode(left);
+      return NULL;
     }
 
     struct ASTNode * node = NULL;
     node = createBinaryNode(token.type, left, right);
     if (node == NULL) {
       p->has_error = 1;
+      freeASTNode(left);
+      freeASTNode(right);
+      return NULL;
     } else {
       left = node;
     }
@@ -2709,341 +2772,6 @@ struct ASTNode * parse_expression(struct Parser *p) {
 
   struct ASTNode * node = parse_logical_or(p);
 
-  return node;
-}
-
-// assignment -> IDENTIFIER EQUAL expression SEMICOLON
-struct ASTNode * parse_assignment(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  struct ASTNode * left = parse_identifier(p);
-  if ( left == NULL ) {
-    p->has_error = 1;
-    return NULL;
-  }
-
-  expect_token(p, TOKEN_EQUAL);
-  if ( p->has_error ) {
-    return NULL;
-  }
-
-  struct ASTNode * right = parse_expression(p);
-  if ( right == NULL ) {
-    p->has_error = 1;
-    return NULL;
-  }
-
-  expect_token(p, TOKEN_SEMICOLON);
-  if ( p->has_error ) {
-    return NULL;
-  }
-
-  struct ASTNode * node = createAssignmentNode(left, right);
-  if (node == NULL) {
-    p->has_error = 1;
-  }
-
-  return node;
-}
-
-// declaration -> datatype IDENTIFIER SEMICOLON
-//              | datatype IDENTIFIER EQUAL expression SEMICOLON
-// OR
-// declaration -> datatype IDENTIFIER ("=" expression)? SEMICOLON -- compact grammer version
-struct ASTNode * parse_declaration(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  enum TypeKind dataType = parse_datatype(p);
-
-  if (dataType == TYPE_ERROR || p->has_error) {
-    return NULL;
-  }
-
-  struct ASTNode * identifier = parse_identifier(p);
-  if ( identifier == NULL ) {
-    p->has_error = 1;
-    return NULL;
-  }
-
-  struct ASTNode * rightValue = NULL;
-  if (is_current_token(p, TOKEN_EQUAL)) {
-    expect_token(p, TOKEN_EQUAL);
-    rightValue = parse_expression(p);
-    if (rightValue == NULL) {
-      p->has_error = 1;
-      return NULL;
-    }
-  }
-
-  expect_token(p, TOKEN_SEMICOLON);
-  if ( p->has_error ) {
-    free(identifier);
-    if (rightValue) {
-      free(rightValue);
-    }
-    return NULL;
-  }
-
-  struct ASTNode * node = createDeclarationNode(dataType, identifier, rightValue);
-  if (node == NULL) {
-    free(identifier);
-    if (rightValue) {
-      free(rightValue);
-    }
-    p->has_error = 1;
-  }
-
-  return node;
-}
-
-// print_statement -> PRINT LPAREN expression RPAREN SEMICON
-struct ASTNode * parse_print_stmt(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  expect_token(p, TOKEN_PRINT);
-  if ( p->has_error ) {
-    return NULL;
-  }
-
-  if (is_current_token(p, TOKEN_LPAREN)) {
-    parse_lparen(p);
-    if ( p->has_error ) {
-      printf("error: expected '(' after PRINT\n");
-      return NULL;
-    }
-    struct ASTNode * expr = parse_expression(p);
-    if (expr == NULL) {
-      printf("error: expected input value to print\n");
-      p->has_error = 1;
-      return NULL;
-    } else {
-      parse_rparen(p);
-      if ( p->has_error ) {
-        printf("error: expected ')' for PRINT statement\n");
-        return NULL;
-      }
-    }
-
-    expect_token(p, TOKEN_SEMICOLON);
-    if ( p->has_error ) {
-     free(expr);
-     return NULL;
-    }
-
-    struct ASTNode * node = createPrintNode(expr);
-    if (node == NULL) {
-      free(expr);
-      p->has_error = 1;
-    }
-    return node;
-  }
-
-  return NULL;
-}
-
-// block -> '{' statement* '}'
-struct ASTNode * parse_block(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  struct ASTNode * block = createBlockNode();
-  if (block == NULL) {
-    return NULL;
-  }
-
-  expect_token(p, TOKEN_LBRACE); // Start of a block
-  if ( p->has_error ) {
-    free (block);
-    return NULL;
-  }
-
-  while (p->has_error == 0) {
-    if (is_current_token(p, TOKEN_EOF)) {
-      printf("error: expected } before end of input\n");
-      p->has_error=1;
-      free (block);
-      return NULL;
-    }
-
-    if (!is_current_token(p, TOKEN_RBRACE)) {
-      struct ASTNode *statement = parse_statement(p);
-      if (statement) {
-        int ret = add_statement_to_block(block, statement);
-        if (ret == FAIL) {
-          p->has_error=1;
-          return NULL;
-        }
-      } else {
-        p->has_error=1;
-        return NULL;
-      }
-      continue;
-    }
-
-    // consume RBRACE token
-    expect_token(p, TOKEN_RBRACE);
-    if ( p->has_error ) {
-      free (block);
-      return NULL;
-    }
-    break;
-  }
-
-  // return whole AST_BLOCK with a list of statements
-  return block;
-}
-
-// while_statement -> while ( expr ) statement
-struct ASTNode * parse_while_stmt(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  // consume WHILE token
-  expect_token(p, TOKEN_WHILE);
-  if ( p->has_error ) {
-    return NULL;
-  }
-
-  // check and consume opening parenthesis
-  parse_lparen(p);
-  if ( p->has_error ) {
-    printf("error: expected '(' after WHILE\n");
-    return NULL;
-  }
-
-  struct ASTNode * expr = parse_expression(p);
-  if (expr == NULL) {
-    printf("error: missing expression in WHILE statement\n");
-    p->has_error = 1;
-    return NULL;
-  }
-
-  parse_rparen(p); // This consumes ')', error otherwise
-  if ( p->has_error ) {
-    printf("error: missing closing parenthesis in WHILE statement\n");
-    free(expr);
-   return NULL;
-  }
-
-  // now parse statements. Empty statement are not allowed
-  struct ASTNode * body_stmt = parse_statement(p);
-  if (body_stmt == NULL) {
-    printf("error: missing statement after WHILE condition.\n");
-    free(expr);
-    p->has_error = 1;
-    return NULL;
-  }
-
-  // no declaration allowed as the directy then body
-  if (body_stmt->kind == AST_DECLARATION) {
-    printf("error: direct declaration is not allowed as body; use a block\n");
-    free(expr);
-    free(body_stmt);
-    p->has_error = 1;
-    return NULL;
-  }
-
-  struct ASTNode * node = createWhileNode(expr, body_stmt);
-  if (node == NULL) {
-    free(expr);
-    free(body_stmt);
-    p->has_error = 1;
-  }
-
-  return node;
-}
-
-// if_statement -> if ( expr ) statement else statement
-//               | if ( expr ) statement
-struct ASTNode * parse_if_stmt(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  // consume IF token
-  expect_token(p, TOKEN_IF);
-  if ( p->has_error ) {
-    return NULL;
-  }
-
-  // check and consume opening parenthesis
-  parse_lparen(p);
-  if ( p->has_error ) {
-    printf("error: expected '(' after IF\n");
-    return NULL;
-  }
-
-  struct ASTNode * expr = parse_expression(p);
-  if (expr == NULL) {
-    printf("error: missing expression in IF statement\n");
-    p->has_error = 1;
-    return NULL;
-  }
-
-  parse_rparen(p); // This consumes ')', error otherwise
-  if ( p->has_error ) {
-    printf("error: missing closing parenthesis in IF statement\n");
-    free(expr);
-   return NULL;
-  }
-
-  // now parse statements. Empty statement are not allowed
-  struct ASTNode * then_stmt = parse_statement(p);
-  if (then_stmt == NULL) {
-    printf("error: missing then statement after IF condition.\n");
-    free(expr);
-    p->has_error = 1;
-    return NULL;
-  }
-
-  // no declaration allowed as the directy then body
-  if (then_stmt->kind == AST_DECLARATION) {
-    printf("error: direct declaration is not allowed as then-body; use a block\n");
-    free(expr);
-    free(then_stmt);
-    p->has_error = 1;
-    return NULL;
-  }
-
-  struct ASTNode * else_stmt = NULL;
-  // now parse else statement
-  if (is_current_token(p, TOKEN_ELSE)) {
-    expect_token(p, TOKEN_ELSE); // consume ELSE token
-    else_stmt = parse_statement(p);
-    if (else_stmt == NULL) {
-      printf("error: expected statement after else\n");
-      p->has_error = 1;
-      free(expr);
-      free(then_stmt);
-      return NULL;
-    }
-    if (else_stmt->kind == AST_DECLARATION) {
-      printf("error: direct declaration is not allowed as else-body; use a block\n");
-      free(expr);
-      free(then_stmt);
-      free(else_stmt);
-      p->has_error = 1;
-      return NULL;
-    }
-  }
-
-  struct ASTNode * node = createIfNode(expr, then_stmt, else_stmt);
-  if (node == NULL) {
-    free(expr);
-    free(then_stmt);
-    if (else_stmt) {
-      free(else_stmt);
-    }
-    p->has_error = 1;
-  }
   return node;
 }
 
@@ -3071,6 +2799,7 @@ struct ASTNode * parse_continue_stmt(struct Parser *p) {
 
   return node;
 }
+
 // break -> break
 struct ASTNode * parse_break_stmt(struct Parser *p) {
   if (p->has_error) {
@@ -3096,7 +2825,387 @@ struct ASTNode * parse_break_stmt(struct Parser *p) {
   return node;
 }
 
-// statement -> declaration | print | block | if | while | break | continue | assignment
+
+// assignment -> IDENTIFIER EQUAL expression SEMICOLON
+struct ASTNode * parse_assignment(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * left = parse_identifier(p);
+  if ( left == NULL ) {
+    p->has_error = 1;
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_EQUAL);
+  if ( p->has_error ) {
+    printf("error: expected '=' after variable identifier in assignment statement\n");
+    freeASTNode(left);
+    return NULL;
+  }
+
+  struct ASTNode * right = parse_expression(p);
+  if (right == NULL ) {
+    if (p->has_error == 0) {
+      p->has_error = 1;
+      printf("error: missing expression on right-hand side of assignment statement\n");
+    } else {
+      printf("error: invalid expression inside assignment statement\n");
+    }
+    freeASTNode(left);
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if (p->has_error) {
+    printf("error: expected ';' to terminate assignment statement\n");
+    freeASTNode(left);
+    freeASTNode(right);
+    return NULL;
+  }
+
+  struct ASTNode * node = createAssignmentNode(left, right);
+  if (node == NULL) {
+    freeASTNode(left);
+    freeASTNode(right);
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
+// declaration -> datatype IDENTIFIER SEMICOLON
+//              | datatype IDENTIFIER EQUAL expression SEMICOLON
+// OR
+// declaration -> datatype IDENTIFIER ("=" expression)? SEMICOLON -- compact grammer version
+struct ASTNode * parse_declaration(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  enum TypeKind dataType = parse_datatype(p);
+
+  if (dataType == TYPE_ERROR || p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * identifier = parse_identifier(p);
+  if ( identifier == NULL ) {
+    return NULL;
+  }
+
+  struct ASTNode * rightValue = NULL;
+
+  if (is_current_token(p, TOKEN_EQUAL)) {
+    expect_token(p, TOKEN_EQUAL);
+    if (p->has_error) {
+      freeASTNode(identifier);
+      return NULL;
+    }
+    rightValue = parse_expression(p);
+    if (rightValue == NULL) {
+      freeASTNode(identifier);
+      p->has_error = 1;
+      return NULL;
+    }
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if ( p->has_error ) {
+    freeASTNode(identifier);
+    freeASTNode(rightValue);
+    return NULL;
+  }
+
+  struct ASTNode * node = createDeclarationNode(dataType, identifier, rightValue);
+  if (node == NULL) {
+    freeASTNode(identifier);
+    freeASTNode(rightValue);
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
+// print_statement -> PRINT LPAREN expression RPAREN SEMICON
+struct ASTNode * parse_print_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_PRINT);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  parse_lparen(p);
+  if ( p->has_error ) {
+    printf("error: expected '(' after print statement\n");
+    return NULL;
+  }
+
+  struct ASTNode * expr = parse_expression(p);
+  if (expr == NULL) {
+    if (p->has_error == 0) {
+      printf("error: expected input value to print statement\n");
+      p->has_error = 1;
+    }
+    return NULL;
+  }
+
+  parse_rparen(p);
+  if (p->has_error) {
+    printf("error: expected ')' for print statement\n");
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if ( p->has_error ) {
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  struct ASTNode * node = createPrintNode(expr);
+  if (node == NULL) {
+    freeASTNode(expr);
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
+// block -> '{' statement* '}'
+struct ASTNode * parse_block(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * block = createBlockNode();
+  if (block == NULL) {
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_LBRACE); // Start of a block
+  if ( p->has_error ) {
+    freeASTNode(block);
+    return NULL;
+  }
+
+  while (p->has_error == 0) {
+
+    if (is_current_token(p, TOKEN_EOF)) {
+      printf("error: expected } to end block scope but found EOF\n");
+      p->has_error=1;
+      freeASTNode(block);
+      return NULL;
+    }
+
+    if (!is_current_token(p, TOKEN_RBRACE)) {
+      struct ASTNode *statement = parse_statement(p);
+      if (statement == NULL) {
+        if (p->has_error == 0) {
+          p->has_error=1;
+          printf("error: invalid or unrecognized statement within block scope.\n");
+        } else {
+          printf("error: invalid statement found within block scope.\n");
+        }
+        freeASTNode(block);
+        return NULL;
+      }
+
+      int ret = add_statement_to_block(block, statement);
+      if (ret == FAIL) {
+        p->has_error=1;
+        freeASTNode(statement);
+        freeASTNode(block);
+        return NULL;
+      }
+
+      // continue to read next token
+      continue;
+    }
+
+    // consume RBRACE token
+    expect_token(p, TOKEN_RBRACE);
+    if ( p->has_error ) {
+      freeASTNode(block);
+      return NULL;
+    }
+    break;
+  }
+
+  // return whole AST_BLOCK with a list of statements
+  return block;
+}
+
+// while_statement -> while ( expr ) statement
+struct ASTNode * parse_while_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  // consume WHILE token
+  expect_token(p, TOKEN_WHILE);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  // check and consume opening parenthesis
+  parse_lparen(p);
+  if ( p->has_error ) {
+    printf("error: expected '(' after while statement\n");
+    return NULL;
+  }
+
+  struct ASTNode * expr = parse_expression(p);
+  if (expr == NULL) {
+    if (p->has_error == 0) {
+      printf("error: missing expression in while statement\n");
+      p->has_error = 1;
+    } else {
+      printf("error: invalid expression inside while statement condition.\n");
+    }
+    return NULL;
+  }
+
+  parse_rparen(p); // This consumes ')', error otherwise
+  if (p->has_error) {
+    printf("error: missing closing parenthesis in while statement\n");
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  // now parse statements. Empty statement are not allowed
+  struct ASTNode * body_stmt = parse_statement(p);
+  if (body_stmt == NULL) {
+    if (p->has_error == 0) {
+      p->has_error = 1;
+      printf("error: missing statement in while body.\n");
+    } else {
+      printf("error: invalid statement in while body.\n");
+    }
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  // no declaration allowed as the directy then body
+  if (body_stmt->kind == AST_DECLARATION) {
+    p->has_error = 1;
+    printf("error: direct declaration is not allowed as body; use a block\n");
+    freeASTNode(expr);
+    freeASTNode(body_stmt);
+    return NULL;
+  }
+
+  struct ASTNode * node = createWhileNode(expr, body_stmt);
+  if (node == NULL) {
+    p->has_error = 1;
+    freeASTNode(body_stmt);
+    freeASTNode(expr);
+  }
+
+  return node;
+}
+
+// if_statement -> if ( expr ) statement else statement
+//               | if ( expr ) statement
+struct ASTNode * parse_if_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  // consume IF token
+  expect_token(p, TOKEN_IF);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  // check and consume opening parenthesis
+  parse_lparen(p);
+  if (p->has_error) {
+    printf("error: expected '(' after if statement\n");
+    return NULL;
+  }
+
+  struct ASTNode * expr = parse_expression(p);
+  if (expr == NULL) {
+    p->has_error = 1;
+    printf("error: missing expression in if statement\n");
+    return NULL;
+  }
+
+  parse_rparen(p); // This consumes ')', error otherwise
+  if ( p->has_error ) {
+    printf("error: missing closing parenthesis in if statement\n");
+    freeASTNode(expr);
+   return NULL;
+  }
+
+  // now parse statements. Empty statement are not allowed
+  struct ASTNode * then_stmt = parse_statement(p);
+  if (then_stmt == NULL) {
+    p->has_error = 1;
+    printf("error: missing then statement after if condition.\n");
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  // no declaration allowed as the directy then body
+  if (then_stmt->kind == AST_DECLARATION) {
+    printf("error: direct declaration is not allowed as then-body; use a block\n");
+    p->has_error = 1;
+    freeASTNode(expr);
+    freeASTNode(then_stmt);
+    return NULL;
+  }
+
+  struct ASTNode * else_stmt = NULL;
+  // now parse else statement
+  if (is_current_token(p, TOKEN_ELSE)) {
+    expect_token(p, TOKEN_ELSE); // consume ELSE token
+    if (p->has_error) {
+      freeASTNode(expr);
+      freeASTNode(then_stmt);
+      return NULL;
+    }
+
+    else_stmt = parse_statement(p);
+    if (else_stmt == NULL) {
+      printf("error: expected statement after else\n");
+      p->has_error = 1;
+      freeASTNode(expr);
+      freeASTNode(then_stmt);
+      return NULL;
+    }
+
+    if (else_stmt->kind == AST_DECLARATION) {
+      printf("error: direct declaration is not allowed as else-body; use a block\n");
+      p->has_error = 1;
+      freeASTNode(expr);
+      freeASTNode(then_stmt);
+      freeASTNode(else_stmt);
+      return NULL;
+    }
+  }
+
+  struct ASTNode * node = createIfNode(expr, then_stmt, else_stmt);
+  if (node == NULL) {
+    p->has_error = 1;
+    freeASTNode(expr);
+    freeASTNode(then_stmt);
+    freeASTNode(else_stmt);
+  }
+
+  return node;
+}
+
+// for_update -> assignment_without_semicolon
+// for_init -> assignment_without_semicolon
+// for_stmt -> for ( for_init ; expr ; for_update ) statement
+
+// statement -> declaration | print | block | if | while | break | continue | for_stmt | assignment
 struct ASTNode * parse_statement(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -3117,9 +3226,17 @@ struct ASTNode * parse_statement(struct Parser *p) {
     node = parse_break_stmt(p);
   } else if (is_current_token(p, TOKEN_CONTINUE)) {
     node = parse_continue_stmt(p);
-  } else {
-    node = parse_assignment(p);
+  } else if (is_current_token(p, TOKEN_IDENTIFIER)) {
+    if (p->pos + 1 < BUFFER_SIZE && is_next_token(p, TOKEN_EQUAL)) {
+      node = parse_assignment(p);
+    } else if (p->has_error == 0) {
+      struct Token bad_token = current_token(p);
+      printf("error: found unexpected symbol '%.*s'\n", bad_token.length, bad_token.start);
+      p->has_error = 1;
+      return NULL;
+    }
   }
+
   return node;
 }
 
@@ -3135,7 +3252,10 @@ struct ASTNode * parse_program(struct Parser *p) {
   while ((p->has_error == 0) && (!is_current_token(p, TOKEN_EOF))) {
     struct ASTNode * statement = parse_statement(p);
     if (statement == NULL) {
-      p->has_error = 1;
+      if (p->has_error == 0) {
+        printf("error: expected statement.\n");
+        p->has_error = 1;
+      }
       break;
     }
 
@@ -3143,11 +3263,13 @@ struct ASTNode * parse_program(struct Parser *p) {
     int ret = add_statement_to_program(program, statement);
     if (ret == FAIL) {
       p->has_error = 1;
+      freeASTNode(program);
       return NULL;
     }
   }
 
   if (p->has_error) {
+    freeASTNode(program);
     return NULL;
   }
 
@@ -3271,12 +3393,12 @@ int main(void) {
     perror("read");
     exit(-1);
   }
-  icode[istat.st_size+1] = '\0';
+  icode[istat.st_size] = '\0';
 
   printf("Input: %s\n", icode);
 
   // Lexer or Tokenizer
-  printf("\n\n--> Tokenizer PHASE: Start\n");
+  printf("\n\n--> 1. Tokenizer PHASE: Start\n");
   int result = tokenize(icode, tokens, &token_count);
   if (result == FAIL) {
     printf("--> TOKENIZE PHASE: FAILED\n");
@@ -3301,7 +3423,7 @@ int main(void) {
   p.pos = 0;
   p.has_error = 0;
 
-  printf("\n\n--> PARSING PHASE: Start\n");
+  printf("\n\n--> 2. PARSING PHASE: Start\n");
   struct ASTNode * program = parse_program(&p);
   if (p.has_error) {
     printf("--> PARSING PHASE: FAILED\n");
@@ -3316,7 +3438,7 @@ int main(void) {
   //print_ast_tree(program, 0);
 
   // Check sematics of the program before we evaluate it
-  printf("\n\n--> SEMANTIC CHECK PHASE: Start\n");
+  printf("\n\n--> 3. SEMANTIC CHECK PHASE: Start\n");
   printf("Initialize symbol table for Semantic check\n");
   struct SymbolTable semantic_table;
   initialize_symbol_table(&semantic_table, NULL);
@@ -3327,20 +3449,23 @@ int main(void) {
 
   result = analyze_program(program, &semantic_table, &semantic_ctx);
 
-  if (result == 0) {
+  if (result == FAIL) {
     printf("--> SEMANTIC CHECK PHASE: FAILED\n");
+    freeSymbolTableContents(&semantic_table);
+    freeASTNode(program);
+    free(icode);
     exit(-1);
   }
 
   printf("Global symbol table after semantic phase\n");
   //print_symbol_table(&semantic_table);
-
   printf("\nPrint AST Tree after SEMANTIC CHECK PHASE:\n ");
   //print_ast_tree(program, 0);
+  freeSymbolTableContents(&semantic_table);
   printf("--> SEMANTIC CHECK PHASE: PASS\n");
 
   // Program is semantically okay so go ahead and evaluate it
-  printf("\n\n--> EVALUATION CHECK PHASE: Start\n");
+  printf("\n\n--> 4. EVALUATION CHECK PHASE: Start\n");
   printf("Initialize symbol table for Evaluation check\n");
   struct SymbolTable runtime_table;
   initialize_symbol_table(&runtime_table, NULL);
@@ -3350,9 +3475,15 @@ int main(void) {
   print_symbol_table(&runtime_table);
   if (result == 0) {
     printf("--> EVALUATION CHECK PHASE: FAILED\n");
+    freeSymbolTableContents(&runtime_table);
+    freeASTNode(program);
+    free(icode);
     exit(-1);
   }
   printf("--> EVALUATION CHECK PHASE: PASS\n");
 
+  freeSymbolTableContents(&runtime_table);
+  freeASTNode(program);
+  free(icode);
   return 0;
 }

@@ -26,6 +26,8 @@ print((1 || 0) && 0);
     x = x - 1.0;
   }
 }
+
+{
 int x = 10;
 float y = 3.5;
 print(x);
@@ -35,18 +37,15 @@ print(y + 1.5);
 print(x + y);
 print(x > 5);
 print(y == 3.5);
-
-{
-  int x = 2;
-  float y = 4.0;
-  print(x);
-  print(y);
-  print(x + y);
-  print(x < 5);
 }
 
+{
+int x = 2;
+float y = 4.0;
 print(x);
 print(y);
+print(x + y);
+print(x < 5);
 
 if (x > 5) {
   print(100);
@@ -95,6 +94,8 @@ print( 3 <= 3);
 print( 2 <= 3);
 print( 4 >= 3);
 print( 3 >= 3.0);
+}
+
 {
 int x=0;
 while (1) {
@@ -105,6 +106,7 @@ while (1) {
   print(1);
 }
 }
+
 while(1) { break; }
 print(9);
 
@@ -120,12 +122,15 @@ while (1) {
   break;
 }
 }
+
 int i = 0;
 print(i);
 while (1) {
   break;
 }
+
 print(9);
+
 {
 int x = 0;
 while (x < 3) {
@@ -133,8 +138,9 @@ while (x < 3) {
   continue;
   print(999);
 }
-}
 print(x);
+}
+
 {
 int x = 0;
 while (x < 5) {
@@ -145,6 +151,7 @@ while (x < 5) {
   print(x);
 }
 }
+
 {
 int i = 0;
 while (i < 3) {
@@ -158,7 +165,7 @@ while (i < 3) {
   print(i);
 }
 }
-{
+
 int x = 0;
 while (1) {
   x = x + 1;
@@ -167,4 +174,4 @@ while (1) {
   }
   print(1);
 }
-}
+
