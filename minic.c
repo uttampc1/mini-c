@@ -1,5 +1,5 @@
 /******************************************************************************
-miniC - 
+miniC -
 ******************************************************************************/
 #include <stdio.h>
 #include <string.h>
@@ -10,6 +10,9 @@ miniC -
 
 #define SUCCESS 1
 #define FAIL    0
+
+#define TRUE    1
+#define FALSE   0
 
 #define BUFFER_SIZE 1024
 #define MAX_TOKENS  1024
@@ -45,6 +48,7 @@ enum TokenKind {
   TOKEN_BREAK,
   TOKEN_CONTINUE,
   TOKEN_DO,
+  TOKEN_RETURN,
   TOKEN_INT,
   TOKEN_FLOAT,
   TOKEN_SEMICOLON,
@@ -70,6 +74,8 @@ enum ASTNodeKind {
   AST_BLOCK,
   AST_PROGRAM,
   AST_EMPTY,
+  AST_RETURN,
+  AST_FUNCTION,
   AST_UNKNOWN
 };
 
@@ -85,7 +91,8 @@ enum EvalResult {
   EVAL_FAIL,
   EVAL_OK,
   EVAL_BREAK,
-  EVAL_CONTINUE
+  EVAL_CONTINUE,
+  EVAL_RETURN
 };
 
 struct Token {
@@ -117,6 +124,7 @@ struct ASTNode {
   struct ASTNode * update;
   struct ASTNode * condition;
   struct ASTNode * body;
+  struct ASTNode * expression;
   struct ASTNode * statements[BUFFER_SIZE];
   int    statement_count;
 };
@@ -140,13 +148,13 @@ struct SymbolTable {
 };
 
 /* Following two structures are used during semantic analysis phase */
-struct LoopFrame {
+struct ContextFrame {
   enum ASTNodeKind kind;
-  struct LoopFrame *prev;
+  struct ContextFrame *prev;
 };
 
 struct SemanticContext {
-  struct LoopFrame *current_loop;
+  struct ContextFrame *current_ctx;
 };
 
 struct ASTNode * createASTNode();
@@ -160,13 +168,14 @@ struct ASTNode * createPrintNode(struct ASTNode * expr);
 struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt, struct ASTNode * else_stmt);
 struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
 struct ASTNode * createDoWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
+struct ASTNode * createReturnNode(struct ASTNode * expr);
 struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
 struct ASTNode * createEmptyNode();
 
 enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table);
 int analyze_expression(struct ASTNode *node, struct SymbolTable *table);
-int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx); 
+int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx);
 int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx);
 
 enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table);
@@ -225,6 +234,8 @@ char *ast_node_type_name(enum ASTNodeKind kind) {
       return "PROGRAM";
     case AST_EMPTY:
       return "EMPTY";
+    case AST_RETURN:
+      return "RETURN";
   }
 
   return "AST_UNKNOWN";
@@ -309,6 +320,8 @@ const char *token_type_name(enum TokenKind type) {
       return "BREAK";
     case TOKEN_CONTINUE:
       return "CONTINUE";
+    case TOKEN_RETURN:
+      return "RETURN";
     case TOKEN_SEMICOLON:
       return "SEMICOLON";
     case TOKEN_UNKNOWN:
@@ -523,7 +536,7 @@ struct ASTNode * createDoWhileNode(struct ASTNode * condition, struct ASTNode * 
   return node;
 }
 
-struct ASTNode * createForNode(struct ASTNode * init, struct ASTNode *  condition, 
+struct ASTNode * createForNode(struct ASTNode * init, struct ASTNode *  condition,
   struct ASTNode * update, struct ASTNode * body) {
 
   struct ASTNode * node = createASTNode();
@@ -551,6 +564,18 @@ struct ASTNode * createIfNode(struct ASTNode * condition, struct ASTNode * then_
   node->condition = condition;
   node->then_branch = then_stmt;
   node->else_branch = else_stmt;
+  return node;
+}
+
+struct ASTNode * createReturnNode(struct ASTNode * expression) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for return ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_RETURN;
+  node->expression = expression;
   return node;
 }
 
@@ -667,6 +692,12 @@ void print_ast_tree(struct ASTNode *node, int depth) {
     return;
   } else if (t->kind == AST_EMPTY) {
     printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
+  } else if (t->kind == AST_RETURN) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
+    if (t->expression != NULL) {
+      printf("%*s %s \n", SPACES*(depth+1), " ", "EXPRESSION");
+      print_ast_tree(t->expression, depth+2);
+    }
   } else if (t->kind == AST_DECLARATION) {
     printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_BLOCK) {
@@ -762,8 +793,83 @@ void print_ast_tree(struct ASTNode *node, int depth) {
 
 /********************************************
  * helper functions
- * Note: add new statement to the program node.
  ********************************************/
+int is_assignment_compatible(enum TypeKind target_type, enum TypeKind source_type) {
+  if (target_type == source_type) {
+    return TRUE;
+  }
+
+  if ((target_type == TYPE_FLOAT) && (source_type == TYPE_INT)) {
+    return TRUE;
+  }
+
+  // Any other combination is incompatible
+  return FALSE;
+}
+
+int is_supported_type(enum TypeKind type) {
+  switch (type) {
+    case TYPE_INT:
+    case TYPE_FLOAT:
+      return TRUE;
+    default:
+      return FALSE;
+  }
+}
+
+int is_supported_binary_operator(enum TokenKind operator_kind) {
+  if (operator_kind == TOKEN_PLUS
+    || operator_kind == TOKEN_MINUS
+    || operator_kind == TOKEN_STAR
+    || operator_kind == TOKEN_SLASH
+    || operator_kind == TOKEN_PERCENT
+    || operator_kind == TOKEN_LESS
+    || operator_kind == TOKEN_LESS_EQUAL
+    || operator_kind == TOKEN_GREATER
+    || operator_kind == TOKEN_GREATER_EQUAL
+    || operator_kind == TOKEN_EQUAL_EQUAL
+    || operator_kind == TOKEN_BANG_EQUAL
+    || operator_kind == TOKEN_ANDAND
+    || operator_kind == TOKEN_OROR) {
+
+    return TRUE; // supported;
+  }
+
+  return FALSE; // not supported;
+}
+
+int has_enclosing_kind(struct ContextFrame *context_frame, enum ASTNodeKind target_kind) {
+  if (context_frame == NULL) {
+    return FALSE;
+  }
+
+  if (context_frame->kind != target_kind) {
+    return has_enclosing_kind(context_frame->prev, target_kind);
+  }
+
+  return TRUE;
+}
+
+int is_inside_loop(struct SemanticContext *ctx) {
+  if (ctx == NULL || ctx->current_ctx == NULL) {
+    return FALSE;
+  }
+
+  return (
+    has_enclosing_kind(ctx->current_ctx, AST_FOR) ||
+    has_enclosing_kind(ctx->current_ctx, AST_DO_WHILE) ||
+    has_enclosing_kind(ctx->current_ctx, AST_WHILE)
+   );
+}
+
+int is_inside_function(struct SemanticContext *ctx) {
+  if (ctx == NULL || ctx->current_ctx == NULL) {
+    return FALSE;
+  }
+
+  return has_enclosing_kind(ctx->current_ctx, AST_FUNCTION);
+}
+
 int add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) {
   struct ASTNode * program = node;
 
@@ -1176,6 +1282,8 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
         ret = add_token(tokens, token_count, TOKEN_BREAK, code + start, len);
       } else if ((len == 8) && strncmp(code+start, "continue", len) == 0) {
         ret = add_token(tokens, token_count, TOKEN_CONTINUE, code + start, len);
+      } else if ((len == 6) && strncmp(code+start, "return", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_RETURN, code + start, len);
       } else if ((len == 5) && strncmp(code+start, "print", len) == 0) {
         // internal print() function/keyword
         ret = add_token(tokens, token_count, TOKEN_PRINT, code + start, len);
@@ -1206,17 +1314,17 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
 int is_next_token(struct Parser *p, enum TokenKind type) {
   struct Token t = p->tokens[p->pos+1];
   if (t.type == type) {
-    return 1;
+    return TRUE;
   }
-  return 0;
+  return FALSE;
 }
 
 int is_current_token(struct Parser *p, enum TokenKind type) {
   struct Token t = p->tokens[p->pos];
   if (t.type == type) {
-    return 1;
+    return TRUE;
   }
-  return 0;
+  return FALSE;
 }
 
 void advance_token(struct Parser *p) {
@@ -1819,7 +1927,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     int ret;
     while(1) {
       struct Value expr_value;
-      
+
       if (node->condition != NULL) {
         ret = eval_expression(node->condition, table, &expr_value);
         if (ret == FAIL) {
@@ -1897,51 +2005,6 @@ int eval_program(struct ASTNode * node, struct SymbolTable *table) {
     }
   }
   return SUCCESS;
-}
-
-// type check over AST - NO COMPUTE
-int is_assignment_compatible(enum TypeKind target_type, enum TypeKind source_type) {
-  if (target_type == source_type) {
-    return 1;
-  }
-
-  if ((target_type == TYPE_FLOAT) && (source_type == TYPE_INT)) {
-    return 1;
-  }
-
-  // Any other combination is incompatible
-  return 0;
-}
-
-int is_supported_type(enum TypeKind type) {
-  switch (type) {
-    case TYPE_INT:
-    case TYPE_FLOAT:
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-int is_supported_binary_operator(enum TokenKind operator_kind) {
-  if (operator_kind == TOKEN_PLUS
-    || operator_kind == TOKEN_MINUS
-    || operator_kind == TOKEN_STAR
-    || operator_kind == TOKEN_SLASH
-    || operator_kind == TOKEN_PERCENT
-    || operator_kind == TOKEN_LESS
-    || operator_kind == TOKEN_LESS_EQUAL
-    || operator_kind == TOKEN_GREATER
-    || operator_kind == TOKEN_GREATER_EQUAL
-    || operator_kind == TOKEN_EQUAL_EQUAL
-    || operator_kind == TOKEN_BANG_EQUAL
-    || operator_kind == TOKEN_ANDAND
-    || operator_kind == TOKEN_OROR) {
-
-    return 1; // supported;
-  }
-
-  return 0; // not supported;
 }
 
 enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table) {
@@ -2390,80 +2453,80 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     // push this loop information to the ctx object
-    struct LoopFrame loop_frame;
-    loop_frame.kind = AST_WHILE;
-    loop_frame.prev = ctx->current_loop;
-    ctx->current_loop = &loop_frame;
+    struct ContextFrame ctx_frame;
+    ctx_frame.kind = AST_WHILE;
+    ctx_frame.prev = ctx->current_ctx;
+    ctx->current_ctx = &ctx_frame;
 
     ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
     // pop the loop information from the ctx before returning
-    ctx->current_loop = ctx->current_loop->prev;
+    ctx->current_ctx = ctx->current_ctx->prev;
 
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_DO_WHILE) {
 
-    struct LoopFrame loop_frame;
-    loop_frame.kind = AST_WHILE;
-    loop_frame.prev = ctx->current_loop;
-    ctx->current_loop = &loop_frame;
+    struct ContextFrame ctx_frame;
+    ctx_frame.kind = AST_DO_WHILE;
+    ctx_frame.prev = ctx->current_ctx;
+    ctx->current_ctx = &ctx_frame;
 
     int ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
     if (node->condition == NULL) {
       printf("semantic error: do-while requires an expression to evaluate\n");
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
     ret = analyze_expression(node->condition, table);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
     enum TypeKind condition_type = analyze_expression_type(node->condition, table);
     if (condition_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
     if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
       printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(condition_type));
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
-    ctx->current_loop = ctx->current_loop->prev;
+    ctx->current_ctx = ctx->current_ctx->prev;
     return SUCCESS;
   } else if (node->kind == AST_FOR) {
     int ret=0;
-    struct LoopFrame loop_frame;
-    loop_frame.kind = AST_FOR;
-    loop_frame.prev = ctx->current_loop;
-    ctx->current_loop = &loop_frame;
+    struct ContextFrame ctx_frame;
+    ctx_frame.kind = AST_FOR;
+    ctx_frame.prev = ctx->current_ctx;
+    ctx->current_ctx = &ctx_frame;
 
     // if exists, handle init statement
     if (node->init != NULL) {
       ret = analyze_statement(node->init, table, ctx);
       if (ret == FAIL) {
         node->type_kind = TYPE_ERROR;
-        ctx->current_loop = ctx->current_loop->prev;
+        ctx->current_ctx = ctx->current_ctx->prev;
         return FAIL;
       }
     }
@@ -2473,21 +2536,21 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       ret = analyze_expression(node->condition, table);
       if (ret == FAIL) {
         node->type_kind = TYPE_ERROR;
-        ctx->current_loop = ctx->current_loop->prev;
+        ctx->current_ctx = ctx->current_ctx->prev;
         return FAIL;
       }
 
       enum TypeKind condition_type = analyze_expression_type(node->condition, table);
       if (condition_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
-        ctx->current_loop = ctx->current_loop->prev;
+        ctx->current_ctx = ctx->current_ctx->prev;
         return FAIL;
       }
 
       if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
         printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(condition_type));
         node->type_kind = TYPE_ERROR;
-        ctx->current_loop = ctx->current_loop->prev;
+        ctx->current_ctx = ctx->current_ctx->prev;
         return FAIL;
       }
     }
@@ -2497,7 +2560,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       ret = analyze_statement(node->update, table, ctx);
       if (ret == FAIL) {
         node->type_kind = TYPE_ERROR;
-        ctx->current_loop = ctx->current_loop->prev;
+        ctx->current_ctx = ctx->current_ctx->prev;
         return FAIL;
       }
     }
@@ -2506,39 +2569,61 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     if (node->body == NULL) {
       printf("semantic error: for loop missing body.\n");
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
     ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
+      ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
-    // pop the loop information from the ctx before returning
-    ctx->current_loop = ctx->current_loop->prev;
+    // pop the parent ctx information from the ctx before returning
+    ctx->current_ctx = ctx->current_ctx->prev;
 
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_BREAK) {
-    // if ctx object does not have a loop_frame then this is a sematic error
-    // since break can not be out side the loop construct, while, for, do-while
-    if (ctx->current_loop == NULL) {
-      printf("semantic error: break statement not inside a loop, semantic error\n");
+
+    if (!is_inside_loop(ctx)) {
+      printf("semantic error: break statement not inside a loop.\n");
+      node->type_kind = TYPE_ERROR;
+      return FAIL;
+    }
+
+    node->type_kind = TYPE_UNUSED;
+    return SUCCESS;
+  } else if (node->kind == AST_CONTINUE) {
+
+    if (!is_inside_loop(ctx)) {
+      printf("semantic error: continue statement not inside a loop.\n");
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
-  } else if (node->kind == AST_CONTINUE) {
-    // if ctx object does not have a loop_frame then this is a sematic error
-    // since continue can not be out side the loop construct, while, for, do-while
-    if (ctx->current_loop == NULL) {
-      printf("semantic error: continue statement not inside a loop, semantic error\n");
+  } else if (node->kind == AST_RETURN) {
+
+    enum TypeKind expression_type = TYPE_UNUSED;
+    if (node->expression) {
+      expression_type = analyze_expression_type(node->expression, table);
+
+      int ret = analyze_expression(node->expression, table);
+      if (ret == FAIL) {
+        node->type_kind = TYPE_ERROR;
+        return FAIL;
+      }
+    }
+
+    if (!is_inside_function(ctx)) {
+      printf("semantic error: return used outside function.\n");
+      node->type_kind = TYPE_ERROR;
       return FAIL;
     }
-    node->type_kind = TYPE_UNUSED;
+
+    node->type_kind = expression_type;
     return SUCCESS;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
@@ -2555,7 +2640,6 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     enum TypeKind expr_type = analyze_expression_type(node->left, table);
     if (expr_type == TYPE_ERROR) {
-      //printf("error: print expression has unsupported type\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2618,12 +2702,12 @@ enum TypeKind parse_datatype(struct Parser *p) {
   if (is_current_token(p, TOKEN_INT)) {
     expect_token(p, TOKEN_INT);
     return TYPE_INT;
-  } 
+  }
 
   if (is_current_token(p, TOKEN_FLOAT)) {
     expect_token(p, TOKEN_FLOAT);
     return TYPE_FLOAT;
-  } 
+  }
 
   //printf("error: unsupported data type found\n");
   return TYPE_ERROR;
@@ -2693,7 +2777,7 @@ struct ASTNode * parse_identifier(struct Parser *p) {
     }
 
     return node;
-  } 
+  }
 
   return NULL;
 }
@@ -3422,7 +3506,7 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
   return node;
 }
 
-// do_statement -> do statement while ( expr ); 
+// do_statement -> do statement while ( expr );
 struct ASTNode * parse_do_stmt(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -3504,7 +3588,6 @@ struct ASTNode * parse_do_stmt(struct Parser *p) {
   return node;
 }
 
-// while_statement -> while ( expr ) statement
 struct ASTNode * parse_while_stmt(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -3722,15 +3805,22 @@ struct ASTNode * parse_declaration(struct Parser *p) {
   return node;
 }
 
-// empty -> ;
-struct ASTNode * parse_empty(struct Parser *p) {
+// return_statement -> return expression ;
+struct ASTNode * parse_return_stmt(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
 
+  // consume RETURN token
+  expect_token(p, TOKEN_RETURN);
+  if ( p->has_error ) {
+    return NULL;
+  }
+
+  struct ASTNode * node = NULL;
   if (is_current_token(p, TOKEN_SEMICOLON)) {
     expect_token(p, TOKEN_SEMICOLON);
-    struct ASTNode * node = createEmptyNode();
+    node = createReturnNode(NULL);
     if (node == NULL) {
       p->has_error = 1;
     }
@@ -3738,7 +3828,48 @@ struct ASTNode * parse_empty(struct Parser *p) {
     return node;
   }
 
-  return NULL;
+  struct ASTNode * expr = parse_expression(p);
+  if (expr == NULL) {
+    if (p->has_error == 0) {
+      printf("parse error: missing expression in return statement\n");
+      p->has_error = 1;
+    } else {
+      printf("parse error: invalid expression in return statement\n");
+    }
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if (p->has_error) {
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  node = createReturnNode(expr);
+  if (node == NULL) {
+    p->has_error = 1;
+    freeASTNode(expr);
+  }
+
+  return node;
+}
+
+// empty -> ;
+struct ASTNode * parse_empty(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * node = NULL;
+  if (is_current_token(p, TOKEN_SEMICOLON)) {
+    expect_token(p, TOKEN_SEMICOLON);
+    node = createEmptyNode();
+    if (node == NULL) {
+      p->has_error = 1;
+    }
+  }
+
+  return node;
 }
 
 // statement -> empty | declaration | print | block | if | while | break | continue | for_stmt | assignment
@@ -3768,6 +3899,8 @@ struct ASTNode * parse_statement(struct Parser *p) {
     node = parse_break_stmt(p);
   } else if (is_current_token(p, TOKEN_CONTINUE)) {
     node = parse_continue_stmt(p);
+  } else if (is_current_token(p, TOKEN_RETURN)) {
+    node = parse_return_stmt(p);
   } else if (is_current_token(p, TOKEN_IDENTIFIER)) {
     if (((p->pos + 1) < p->token_count) && is_next_token(p, TOKEN_EQUAL)) {
       node = parse_assignment(p);
@@ -3967,7 +4100,7 @@ int main(void) {
 
   printf("\n\n--> 2. PARSING PHASE: Start\n");
   struct ASTNode * program = parse_program(&p);
-  
+
   if (p.has_error) {
     printf("--> PARSING PHASE: FAILED\n");
     exit(-1);
@@ -3988,7 +4121,7 @@ int main(void) {
   print_symbol_table(&semantic_table);
 
   struct SemanticContext semantic_ctx;
-  semantic_ctx.current_loop = NULL;
+  semantic_ctx.current_ctx = NULL;
 
   result = analyze_program(program, &semantic_table, &semantic_ctx);
 
