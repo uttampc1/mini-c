@@ -44,6 +44,7 @@ enum TokenKind {
   TOKEN_FOR,
   TOKEN_BREAK,
   TOKEN_CONTINUE,
+  TOKEN_DO,
   TOKEN_INT,
   TOKEN_FLOAT,
   TOKEN_SEMICOLON,
@@ -62,6 +63,7 @@ enum ASTNodeKind {
   AST_PRINT,
   AST_IF,
   AST_WHILE,
+  AST_DO_WHILE,
   AST_FOR,
   AST_BREAK,
   AST_CONTINUE,
@@ -157,6 +159,7 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
 struct ASTNode * createPrintNode(struct ASTNode * expr);
 struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt, struct ASTNode * else_stmt);
 struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
+struct ASTNode * createDoWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
 struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
 struct ASTNode * createEmptyNode();
@@ -210,6 +213,8 @@ char *ast_node_type_name(enum ASTNodeKind kind) {
       return "IF";
     case AST_WHILE:
       return "WHILE";
+    case AST_DO_WHILE:
+      return "DO_WHILE";
     case AST_FOR:
       return "FOR";
     case AST_BREAK:
@@ -298,6 +303,8 @@ const char *token_type_name(enum TokenKind type) {
       return "WHILE";
     case TOKEN_FOR:
       return "FOR";
+    case TOKEN_DO:
+      return "DO";
     case TOKEN_BREAK:
       return "BREAK";
     case TOKEN_CONTINUE:
@@ -503,6 +510,19 @@ struct ASTNode * createWhileNode(struct ASTNode * condition, struct ASTNode * bo
   return node;
 }
 
+struct ASTNode * createDoWhileNode(struct ASTNode * condition, struct ASTNode * body) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for do-while ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_DO_WHILE;
+  node->condition = condition;
+  node->body = body;
+  return node;
+}
+
 struct ASTNode * createForNode(struct ASTNode * init, struct ASTNode *  condition, 
   struct ASTNode * update, struct ASTNode * body) {
 
@@ -680,6 +700,16 @@ void print_ast_tree(struct ASTNode *node, int depth) {
     if (t->body != NULL) {
       printf("%*s %s \n", SPACES*(depth+1), " ", "BODY");
       print_ast_tree(t->body, depth+2);
+    }
+  } else if (t->kind == AST_DO_WHILE) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
+    if (t->body != NULL) {
+      printf("%*s %s \n", SPACES*(depth+1), " ", "BODY");
+      print_ast_tree(t->body, depth+2);
+    }
+    if (t->condition != NULL) {
+      printf("%*s %s \n", SPACES*(depth+1), " ", "CONDITION");
+      print_ast_tree(t->condition, depth+2);
     }
   } else if (t->kind == AST_FOR) {
     printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
@@ -1140,6 +1170,8 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
         ret = add_token(tokens, token_count, TOKEN_WHILE, code + start, len);
       } else if ((len == 3) && strncmp(code+start, "for", len) == 0) {
         ret = add_token(tokens, token_count, TOKEN_FOR, code + start, len);
+      } else if ((len == 2) && strncmp(code+start, "do", len) == 0) {
+        ret = add_token(tokens, token_count, TOKEN_DO, code + start, len);
       } else if ((len == 5) && strncmp(code+start, "break", len) == 0) {
         ret = add_token(tokens, token_count, TOKEN_BREAK, code + start, len);
       } else if ((len == 8) && strncmp(code+start, "continue", len) == 0) {
@@ -1732,6 +1764,43 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
         continue;
       }
     }
+    return EVAL_OK;
+  } else if (node->kind == AST_DO_WHILE) {
+    if (node->body == NULL) {
+      return EVAL_FAIL;
+    }
+
+    if (node->condition == NULL) {
+      return EVAL_FAIL;
+    }
+
+    while(1) {
+      enum EvalResult eval_ret = eval_statement(node->body, table);
+      if (eval_ret == EVAL_FAIL) {
+        return EVAL_FAIL;
+      } else if (eval_ret == EVAL_BREAK) {
+        break;
+      } else if (eval_ret == EVAL_CONTINUE) {
+        continue;
+      }
+
+      struct Value expr_value;
+      int ret = eval_expression(node->condition, table, &expr_value);
+      if (ret == FAIL) {
+        return EVAL_FAIL;
+      }
+
+      if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
+        printf("runtime error: condition type must be numeric\n");
+        return EVAL_FAIL;
+      }
+
+      if ((expr_value.type == TYPE_INT && expr_value.int_value == 0)
+        || (expr_value.type == TYPE_FLOAT && expr_value.float_value == 0.0)) {
+        break;
+      }
+    }
+
     return EVAL_OK;
   } else if (node->kind == AST_FOR) {
     if (node->body == NULL) {
@@ -2337,6 +2406,50 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     ctx->current_loop = ctx->current_loop->prev;
 
     node->type_kind = TYPE_UNUSED;
+    return SUCCESS;
+  } else if (node->kind == AST_DO_WHILE) {
+
+    struct LoopFrame loop_frame;
+    loop_frame.kind = AST_WHILE;
+    loop_frame.prev = ctx->current_loop;
+    ctx->current_loop = &loop_frame;
+
+    int ret = analyze_statement(node->body, table, ctx);
+    if (ret == FAIL) {
+      node->type_kind = TYPE_ERROR;
+      ctx->current_loop = ctx->current_loop->prev;
+      return FAIL;
+    }
+
+    if (node->condition == NULL) {
+      printf("semantic error: do-while requires an expression to evaluate\n");
+      node->type_kind = TYPE_ERROR;
+      ctx->current_loop = ctx->current_loop->prev;
+      return FAIL;
+    }
+
+    ret = analyze_expression(node->condition, table);
+    if (ret == FAIL) {
+      node->type_kind = TYPE_ERROR;
+      ctx->current_loop = ctx->current_loop->prev;
+      return FAIL;
+    }
+
+    enum TypeKind condition_type = analyze_expression_type(node->condition, table);
+    if (condition_type == TYPE_ERROR) {
+      node->type_kind = TYPE_ERROR;
+      ctx->current_loop = ctx->current_loop->prev;
+      return FAIL;
+    }
+
+    if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
+      printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(condition_type));
+      node->type_kind = TYPE_ERROR;
+      ctx->current_loop = ctx->current_loop->prev;
+      return FAIL;
+    }
+
+    ctx->current_loop = ctx->current_loop->prev;
     return SUCCESS;
   } else if (node->kind == AST_FOR) {
     int ret=0;
@@ -3309,6 +3422,88 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
   return node;
 }
 
+// do_statement -> do statement while ( expr ); 
+struct ASTNode * parse_do_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  // consume DO token
+  expect_token(p, TOKEN_DO);
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * body_stmt = parse_statement(p);
+  if (body_stmt == NULL) {
+    if (p->has_error == 0) {
+      p->has_error = 1;
+      printf("parse error: missing statement in do body.\n");
+    } else {
+      printf("parse error: invalid statement in do body.\n");
+    }
+    return NULL;
+  }
+
+  // no declaration allowed as the direct do body
+  if (body_stmt->kind == AST_DECLARATION) {
+    p->has_error = 1;
+    printf("parse error: direct declaration is not allowed as body; use a block\n");
+    freeASTNode(body_stmt);
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_WHILE);
+  if (p->has_error) {
+    freeASTNode(body_stmt);
+    return NULL;
+  }
+
+  // check and consume opening parenthesis
+  parse_lparen(p);
+  if (p->has_error) {
+    printf("parse error: expected '(' after while statement\n");
+    freeASTNode(body_stmt);
+    return NULL;
+  }
+
+  struct ASTNode * expr = parse_expression(p);
+  if (expr == NULL) {
+    if (p->has_error == 0) {
+      printf("parse error: missing expression in while statement\n");
+      p->has_error = 1;
+    } else {
+      printf("parse error: invalid expression inside while statement condition.\n");
+    }
+    freeASTNode(body_stmt);
+    return NULL;
+  }
+
+  parse_rparen(p); // This consumes ')', error otherwise
+  if (p->has_error) {
+    printf("parse error: missing closing parenthesis in while statement\n");
+    freeASTNode(expr);
+    freeASTNode(body_stmt);
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if (p->has_error) {
+    freeASTNode(expr);
+    freeASTNode(body_stmt);
+    return NULL;
+  }
+
+  struct ASTNode * node = createDoWhileNode(expr, body_stmt);
+  if (node == NULL) {
+    p->has_error = 1;
+    freeASTNode(expr);
+    freeASTNode(body_stmt);
+  }
+
+  return node;
+}
+
 // while_statement -> while ( expr ) statement
 struct ASTNode * parse_while_stmt(struct Parser *p) {
   if (p->has_error) {
@@ -3359,7 +3554,7 @@ struct ASTNode * parse_while_stmt(struct Parser *p) {
     return NULL;
   }
 
-  // no declaration allowed as the directy then body
+  // no declaration allowed as the direct while body
   if (body_stmt->kind == AST_DECLARATION) {
     p->has_error = 1;
     printf("parse error: direct declaration is not allowed as body; use a block\n");
@@ -3421,7 +3616,7 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
     return NULL;
   }
 
-  // no declaration allowed as the directy then body
+  // no declaration allowed as the direct then body
   if (then_stmt->kind == AST_DECLARATION) {
     printf("parse error: direct declaration is not allowed as then-body; use a block\n");
     p->has_error = 1;
@@ -3567,6 +3762,8 @@ struct ASTNode * parse_statement(struct Parser *p) {
     node = parse_while_stmt(p);
   } else if (is_current_token(p, TOKEN_FOR)) {
     node = parse_for_stmt(p);
+  } else if (is_current_token(p, TOKEN_DO)) {
+    node = parse_do_stmt(p);
   } else if (is_current_token(p, TOKEN_BREAK)) {
     node = parse_break_stmt(p);
   } else if (is_current_token(p, TOKEN_CONTINUE)) {

@@ -196,7 +196,7 @@ Goal: complete a solid structured miniC front end + interpreter.
 - [x] `break`
 - [x] `continue`
 - [x] `for`
-- [ ] `do_while`
+- [x] `do_while`
 - [ ] `return`
 
 #### General improvements
@@ -207,16 +207,16 @@ Goal: complete a solid structured miniC front end + interpreter.
 - [ ] strengthen parser error handling gradually
 
 #### Recommended near-term order
-1. [x] `&&`
-2. [x] `||`
-3. [x] `!`
-4. [x] `<=`
-5. [x] `>=`
-6. [x] `break`
-7. [x] `continue`
-8. [x] `for` version 1
-9. [x] `for` version 2
-10. [ ] `do_while`
+1.  [x] `&&`
+2.  [x] `||`
+3.  [x] `!`
+4.  [x] `<=`
+5.  [x] `>=`
+6.  [x] `break`
+7.  [x] `continue`
+8.  [x] `for` version 1
+9.  [x] `for` version 2
+10. [x] `do_while`
 
 ---
 
