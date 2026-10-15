@@ -12,6 +12,7 @@ miniC -
 #define FAIL    0
 
 #define BUFFER_SIZE 1024
+#define MAX_TOKENS  1024
 #define MAX_SYMBOLS 1024
 #define SPACES 2
 
@@ -66,6 +67,7 @@ enum ASTNodeKind {
   AST_CONTINUE,
   AST_BLOCK,
   AST_PROGRAM,
+  AST_EMPTY,
   AST_UNKNOWN
 };
 
@@ -92,8 +94,9 @@ struct Token {
 
 struct Parser {
   struct Token *tokens;
-  int pos;
-  int has_error;
+  int    token_count;
+  int    pos;
+  int    has_error;
 };
 
 struct ASTNode {
@@ -156,6 +159,7 @@ struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt,
 struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
 struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
+struct ASTNode * createEmptyNode();
 
 enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table);
 int analyze_expression(struct ASTNode *node, struct SymbolTable *table);
@@ -214,6 +218,8 @@ char *ast_node_type_name(enum ASTNodeKind kind) {
       return "CONTINUE";
     case AST_PROGRAM:
       return "PROGRAM";
+    case AST_EMPTY:
+      return "EMPTY";
   }
 
   return "AST_UNKNOWN";
@@ -306,22 +312,293 @@ const char *token_type_name(enum TokenKind type) {
   return "UNKNOWN";
 }
 
-// lexer
-int add_token(struct Token tokens[], int *token_count, enum TokenKind type, char *start, int length) {
-  struct Token t;
-  t.type = type;
-  t.start = start;
-  t.length = length;
-  if (*token_count < BUFFER_SIZE) {
-    tokens[*token_count] = t;
-    *token_count = *token_count + 1;
-    return SUCCESS;
-  } else {
-    printf("tokenizer error: no more tokens will be accepted. OOM\n");
-    return FAIL;
+// Generic AST Node allocation
+struct ASTNode * createASTNode() {
+  struct ASTNode * node = NULL;
+  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
+  if (node == NULL) {
+    return NULL;
   }
+
+  node->kind = AST_UNKNOWN;
+  node->number_value = -9999;
+  node->float_number_value = -9999.9999;
+  node->left = NULL;
+  node->right = NULL;
+  node->then_branch = NULL;
+  node->else_branch = NULL;
+  node->init = NULL;
+  node->update = NULL;
+  node->condition = NULL;
+  node->body = NULL;
+  node->identifier_name[0] = '\0';
+  node->operator_kind = TOKEN_UNKNOWN;
+  node->type_kind = TYPE_UNUSED;
+  node->declared_variable_type = TYPE_UNUSED;
+  for (int i=0; i < BUFFER_SIZE; i++) {
+    node->statements[i] = NULL;
+  }
+  node->statement_count = 0;
+  return node;
 }
 
+// AST_EMPTY node allocation
+struct ASTNode * createEmptyNode() {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for empty ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_EMPTY;
+  return node;
+}
+
+// AST_UNARY node allocation
+struct ASTNode * createUnaryNode(enum TokenKind type) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for unary ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_UNARY;
+  node->operator_kind = type;
+  return node;
+}
+
+struct ASTNode * createNumberNode(enum TypeKind type, char * value) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for number ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_NUMBER;
+  if (type == TYPE_INT) {
+    node->type_kind = TYPE_INT;
+    //node->number_value = strtol(value, NULL, 10);
+    node->number_value = atoi(value);
+  } else  if (type == TYPE_FLOAT) {
+    node->type_kind = TYPE_FLOAT;
+    //node->float_number_value = strtod(value, NULL);
+    node->float_number_value = atof(value);
+  }
+  return node;
+}
+
+struct ASTNode * createIdentifierNode(char *name) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for identifier ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_IDENTIFIER;
+  size_t len = strlen(name);
+  int bytesToCopy = (len >= BUFFER_SIZE) ? BUFFER_SIZE-1 : len;
+  strncpy(node->identifier_name, name, bytesToCopy);
+  node->identifier_name[bytesToCopy] = '\0';
+  return node;
+}
+
+struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode, struct ASTNode * rightNode) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for binary ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_BINARY;
+  node->left = leftNode;
+  node->right = rightNode;
+  node->operator_kind = type;
+  return node;
+}
+
+struct ASTNode * createDeclarationNode(enum TypeKind declaredType, struct ASTNode *ident, struct ASTNode * valueNode) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for identifier ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_DECLARATION;
+  node->left = ident;
+  node->right = valueNode;
+  node->declared_variable_type = declaredType;
+  return node;
+}
+
+struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for assignment ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_ASSIGNMENT;
+  node->left = leftNode;
+  node->right = rightNode;
+  return node;
+}
+
+// Print node which holds a expression subtree
+struct ASTNode * createPrintNode(struct ASTNode * expr) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for print ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_PRINT;
+  node->left = expr;
+  return node;
+}
+
+// BLOCK node which holds a list of statements for a block and count
+struct ASTNode * createBlockNode() {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for block ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_BLOCK;
+  return node;
+}
+
+struct ASTNode * createBreakNode() {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for break ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_BREAK;
+  return node;
+}
+
+struct ASTNode * createContinueNode() {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for continue ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_CONTINUE;
+  return node;
+}
+
+struct ASTNode * createWhileNode(struct ASTNode * condition, struct ASTNode * body) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for while ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_WHILE;
+  node->condition = condition;
+  node->body = body;
+  return node;
+}
+
+struct ASTNode * createForNode(struct ASTNode * init, struct ASTNode *  condition, 
+  struct ASTNode * update, struct ASTNode * body) {
+
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for 'for' ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_FOR;
+  node->condition = condition;
+  node->init = init;
+  node->update = update;
+  node->body = body;
+  return node;
+}
+
+struct ASTNode * createIfNode(struct ASTNode * condition, struct ASTNode * then_stmt, struct ASTNode * else_stmt) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for if ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_IF;
+  node->condition = condition;
+  node->then_branch = then_stmt;
+  node->else_branch = else_stmt;
+  return node;
+}
+
+// Program node which holds a list of statements and count
+struct ASTNode * createProgramNode() {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for program ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_PROGRAM;
+  return node;
+}
+
+void freeASTNode(struct ASTNode * node) {
+  if (node == NULL) {
+    return;
+  }
+
+  if (node->left != NULL) {
+    freeASTNode(node->left);
+  }
+  if (node->right != NULL) {
+    freeASTNode(node->right);
+  }
+  if (node->condition != NULL) {
+    freeASTNode(node->condition);
+  }
+  if (node->then_branch != NULL) {
+    freeASTNode(node->then_branch);
+  }
+  if (node->else_branch != NULL) {
+    freeASTNode(node->else_branch);
+  }
+  if (node->body != NULL) {
+    freeASTNode(node->body);
+  }
+
+  if (node->statement_count) {
+    for(int i=0; i < node->statement_count; i++) {
+      if (node->statements[i] != NULL) {
+        freeASTNode(node->statements[i]);
+      }
+    }
+  }
+
+  free(node);
+}
+
+void freeSymbolTableContents(struct SymbolTable *table) {
+  if (table == NULL) {
+    return;
+  }
+
+  for (int i=0; i < table->count; i++) {
+    if (table->symbols[i].name != NULL) {
+      free(table->symbols[i].name);
+      table->symbols[i].name = NULL;
+    }
+  }
+
+  table->count = 0;
+}
+
+/********************************************
+ * logging/printing Tokens, AST_tree
+ ********************************************/
 void print_token(struct Token t) {
   if (t.type == TOKEN_EOF) {
     printf("EOF\n");
@@ -338,7 +615,6 @@ void print_symbol_table(struct SymbolTable *table) {
 
   printf("--- print Symbol Table ---\n");
   if (t->count <= 0) {
-    //printf("warning: no symbols found\n");
     return;
   }
 
@@ -369,6 +645,8 @@ void print_ast_tree(struct ASTNode *node, int depth) {
       print_ast_tree(t->statements[c], depth+1);
     }
     return;
+  } else if (t->kind == AST_EMPTY) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_DECLARATION) {
     printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
   } else if (t->kind == AST_BLOCK) {
@@ -450,6 +728,154 @@ void print_ast_tree(struct ASTNode *node, int depth) {
   print_ast_tree(t->else_branch, depth+1);
 
   return;
+}
+
+/********************************************
+ * helper functions
+ * Note: add new statement to the program node.
+ ********************************************/
+int add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) {
+  struct ASTNode * program = node;
+
+  // we can add few checks
+  // program != NULL
+  // program->kind == AST_PROGRAM
+  // statement != NULL
+  if (program && (program->kind == AST_PROGRAM) && (statement != NULL) ) {
+    int count = program->statement_count;
+
+    if (count < BUFFER_SIZE) {
+      program->statements[count] = statement;
+      program->statement_count = count + 1;
+    } else {
+      printf("error: we are running out of space to add additional statements in a program\n");
+      return FAIL;
+    }
+  }
+  return SUCCESS;
+}
+
+int add_statement_to_block(struct ASTNode * node, struct ASTNode * statement) {
+  struct ASTNode * block = node;
+
+  // we can add few checks
+  // program != NULL
+  // program->kind == AST_PROGRAM
+  // statement != NULL
+  if ( block && (block->kind == AST_BLOCK) && (statement != NULL) ) {
+    int count = block->statement_count;
+
+    if (count < BUFFER_SIZE) {
+     block->statements[count] = statement;
+     block->statement_count = count + 1;
+    } else {
+      printf("error: we are running out of space to add additional statements in block\n");
+      return FAIL;
+    }
+  }
+  return SUCCESS;
+}
+
+// Symbol table
+void initialize_symbol_table(struct SymbolTable *table, struct SymbolTable *parent) {
+  table->parent = parent;
+  table->count = 0;
+}
+
+// return symbol if it exists in current scope
+struct Symbol * lookup_symbol_current(struct SymbolTable *table, char *name) {
+  if (table == NULL) {
+    return NULL;
+  }
+
+  for (int i = 0; i < table->count; i++) {
+    struct Symbol *symbol = &table->symbols[i];
+    if (strcmp(symbol->name, name) == 0) {
+      return symbol;
+    }
+  }
+
+  return NULL;
+}
+
+// if current scope doesn't have, check its parent, until
+// either it is found or parent is NULL.
+struct Symbol * lookup_symbol_visible(struct SymbolTable *table, char *name) {
+  if (table == NULL) {
+    return NULL;
+  }
+
+  // search current scope (table)
+  struct Symbol * symbol = lookup_symbol_current(table, name);
+  if (symbol) {
+    return symbol;
+  }
+
+  // not found in current, check it's parent recursively
+  if (table->parent) {
+    return lookup_symbol_visible(table->parent, name);
+  }
+
+  return NULL;
+}
+
+// add symbol if symbol doesn't exists in the table
+// update value if symbol exists in the table
+void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, struct Value *value) {
+  //printf("Add [%s] symbol to the table\n", name);
+  if (table == NULL) {
+    printf("Symbol table error: symbol table is not allocated\n");
+    return;
+  }
+
+  struct Symbol *symbol = NULL;
+  for (int i = 0; i < table->count; i++) {
+    symbol = &table->symbols[i];
+    if (strcmp(symbol->name, name) == 0) {
+      symbol->value = *value;
+      return;
+    }
+  }
+
+  if (table->count >= MAX_SYMBOLS) {
+    printf("Symbol table error: symbol table is full, no space left.\n");
+    return;
+  }
+
+  size_t symbol_len = strlen(name);
+  char *new_symbol = (char *)malloc(symbol_len+1);
+  if (new_symbol == NULL) {
+    printf("Symbol table error: couldn't allocate memory for new symbol\n");
+    return;
+  }
+
+  for (int i=0; i < symbol_len+1; i++) {
+    new_symbol[i] = '\0';
+  }
+  strncpy(new_symbol, name, symbol_len);
+
+  table->symbols[table->count].type = type;
+  table->symbols[table->count].name = new_symbol;
+  table->symbols[table->count].value = *value;
+  table->count++;
+
+  return;
+}
+
+// lexer
+int add_token(struct Token tokens[], int *token_count, enum TokenKind type, char *start, int length) {
+  struct Token t;
+  t.type = type;
+  t.start = start;
+  t.length = length;
+  if (*token_count < MAX_TOKENS) {
+    tokens[*token_count] = t;
+    *token_count = *token_count + 1;
+    return SUCCESS;
+  } else {
+    printf("tokenizer error: no more tokens will be accepted. OOM\n");
+    return FAIL;
+  }
 }
 
 int is_alpha(char c) {
@@ -778,407 +1204,6 @@ void expect_token(struct Parser *p, enum TokenKind type) {
     p->has_error = 1;
     printf("tokenizer error: expected %s token, found %s token instead\n", token_type_name(type), token_type_name(t.type));
   }
-  return;
-}
-
-// Generic AST Node allocation
-struct ASTNode * createASTNode() {
-  struct ASTNode * node = NULL;
-  node = (struct ASTNode *)malloc(sizeof(struct ASTNode));
-  if (node == NULL) {
-    return NULL;
-  }
-
-  node->kind = AST_UNKNOWN;
-  node->number_value = -9999;
-  node->float_number_value = -9999.9999;
-  node->left = NULL;
-  node->right = NULL;
-  node->then_branch = NULL;
-  node->else_branch = NULL;
-  node->init = NULL;
-  node->update = NULL;
-  node->condition = NULL;
-  node->body = NULL;
-  node->identifier_name[0] = '\0';
-  node->operator_kind = TOKEN_UNKNOWN;
-  node->type_kind = TYPE_UNUSED;
-  node->declared_variable_type = TYPE_UNUSED;
-  for (int i=0; i < BUFFER_SIZE; i++) {
-    node->statements[i] = NULL;
-  }
-  node->statement_count = 0;
-  return node;
-}
-
-// AST_UNARY node allocation
-struct ASTNode * createUnaryNode(enum TokenKind type) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for unary ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_UNARY;
-  node->operator_kind = type;
-  return node;
-}
-
-struct ASTNode * createNumberNode(enum TypeKind type, char * value) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for number ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_NUMBER;
-  if (type == TYPE_INT) {
-    node->type_kind = TYPE_INT;
-    //node->number_value = strtol(value, NULL, 10);
-    node->number_value = atoi(value);
-  } else  if (type == TYPE_FLOAT) {
-    node->type_kind = TYPE_FLOAT;
-    //node->float_number_value = strtod(value, NULL);
-    node->float_number_value = atof(value);
-  }
-  return node;
-}
-
-struct ASTNode * createIdentifierNode(char *name) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for identifier ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_IDENTIFIER;
-  size_t len = strlen(name);
-  int bytesToCopy = (len >= BUFFER_SIZE) ? BUFFER_SIZE-1 : len;
-  strncpy(node->identifier_name, name, bytesToCopy);
-  node->identifier_name[bytesToCopy] = '\0';
-  return node;
-}
-
-struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode, struct ASTNode * rightNode) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for binary ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_BINARY;
-  node->left = leftNode;
-  node->right = rightNode;
-  node->operator_kind = type;
-  return node;
-}
-
-struct ASTNode * createDeclarationNode(enum TypeKind declaredType, struct ASTNode *ident, struct ASTNode * valueNode) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for identifier ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_DECLARATION;
-  node->left = ident;
-  node->right = valueNode;
-  node->declared_variable_type = declaredType;
-  return node;
-}
-
-struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for assignment ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_ASSIGNMENT;
-  node->left = leftNode;
-  node->right = rightNode;
-  return node;
-}
-
-// Print node which holds a expression subtree
-struct ASTNode * createPrintNode(struct ASTNode * expr) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for print ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_PRINT;
-  node->left = expr;
-  return node;
-}
-
-// BLOCK node which holds a list of statements for a block and count
-struct ASTNode * createBlockNode() {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for block ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_BLOCK;
-  return node;
-}
-
-struct ASTNode * createBreakNode() {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for break ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_BREAK;
-  return node;
-}
-
-struct ASTNode * createContinueNode() {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for continue ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_CONTINUE;
-  return node;
-}
-
-struct ASTNode * createWhileNode(struct ASTNode * condition, struct ASTNode * body) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for while ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_WHILE;
-  node->condition = condition;
-  node->body = body;
-  return node;
-}
-
-struct ASTNode * createForNode(struct ASTNode * init, struct ASTNode *  condition, 
-  struct ASTNode * update, struct ASTNode * body) {
-
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for 'for' ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_FOR;
-  node->condition = condition;
-  node->init = init;
-  node->update = update;
-  node->body = body;
-  return node;
-}
-
-struct ASTNode * createIfNode(struct ASTNode * condition, struct ASTNode * then_stmt, struct ASTNode * else_stmt) {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for if ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_IF;
-  node->condition = condition;
-  node->then_branch = then_stmt;
-  node->else_branch = else_stmt;
-  return node;
-}
-
-// Program node which holds a list of statements and count
-struct ASTNode * createProgramNode() {
-  struct ASTNode * node = createASTNode();
-  if (node == NULL) {
-    printf("AST error: couldn't allocate memory for program ASTNode\n");
-    return NULL;
-  }
-
-  node->kind = AST_PROGRAM;
-  return node;
-}
-
-void freeASTNode(struct ASTNode * node) {
-  if (node == NULL) {
-    return;
-  }
-
-  if (node->left != NULL) {
-    freeASTNode(node->left);
-  }
-  if (node->right != NULL) {
-    freeASTNode(node->right);
-  }
-  if (node->condition != NULL) {
-    freeASTNode(node->condition);
-  }
-  if (node->then_branch != NULL) {
-    freeASTNode(node->then_branch);
-  }
-  if (node->else_branch != NULL) {
-    freeASTNode(node->else_branch);
-  }
-  if (node->body != NULL) {
-    freeASTNode(node->body);
-  }
-
-  if (node->statement_count) {
-    for(int i=0; i < node->statement_count; i++) {
-      if (node->statements[i] != NULL) {
-        freeASTNode(node->statements[i]);
-      }
-    }
-  }
-
-  free(node);
-}
-
-void freeSymbolTableContents(struct SymbolTable *table) {
-  if (table == NULL) {
-    return;
-  }
-
-  for (int i=0; i < table->count; i++) {
-    if (table->symbols[i].name != NULL) {
-      free(table->symbols[i].name);
-      table->symbols[i].name = NULL;
-    }
-  }
-
-  table->count = 0;
-}
-
-// helper: add new statement to the program node.
-int add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) {
-  struct ASTNode * program = node;
-
-  // we can add few checks
-  // program != NULL
-  // program->kind == AST_PROGRAM
-  // statement != NULL
-  if (program && (program->kind == AST_PROGRAM) && (statement != NULL) ) {
-    int count = program->statement_count;
-
-    if (count < BUFFER_SIZE) {
-      program->statements[count] = statement;
-      program->statement_count = count + 1;
-    } else {
-      printf("error: we are running out of space to add additional statements in a program\n");
-      return FAIL;
-    }
-  }
-  return SUCCESS;
-}
-
-int add_statement_to_block(struct ASTNode * node, struct ASTNode * statement) {
-  struct ASTNode * block = node;
-
-  // we can add few checks
-  // program != NULL
-  // program->kind == AST_PROGRAM
-  // statement != NULL
-  if ( block && (block->kind == AST_BLOCK) && (statement != NULL) ) {
-    int count = block->statement_count;
-
-    if (count < BUFFER_SIZE) {
-     block->statements[count] = statement;
-     block->statement_count = count + 1;
-    } else {
-      printf("error: we are running out of space to add additional statements in block\n");
-      return FAIL;
-    }
-  }
-  return SUCCESS;
-}
-
-// Symbol table
-void initialize_symbol_table(struct SymbolTable *table, struct SymbolTable *parent) {
-  table->parent = parent;
-  table->count = 0;
-}
-
-// return symbol if it exists in current scope
-struct Symbol * lookup_symbol_current(struct SymbolTable *table, char *name) {
-  if (table == NULL) {
-    return NULL;
-  }
-
-  for (int i = 0; i < table->count; i++) {
-    struct Symbol *symbol = &table->symbols[i];
-    if (strcmp(symbol->name, name) == 0) {
-      return symbol;
-    }
-  }
-
-  return NULL;
-}
-
-// if current scope doesn't have, check its parent, until
-// either it is found or parent is NULL.
-struct Symbol * lookup_symbol_visible(struct SymbolTable *table, char *name) {
-  if (table == NULL) {
-    return NULL;
-  }
-
-  // search current scope (table)
-  struct Symbol * symbol = lookup_symbol_current(table, name);
-  if (symbol) {
-    return symbol;
-  }
-
-  // not found in current, check it's parent recursively
-  if (table->parent) {
-    return lookup_symbol_visible(table->parent, name);
-  }
-
-  return NULL;
-}
-
-// add symbol if symbol doesn't exists in the table
-// update value if symbol exists in the table
-void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, struct Value *value) {
-  //printf("Add [%s] symbol to the table\n", name);
-  if (table == NULL) {
-    printf("Symbol table error: symbol table is not allocated\n");
-    return;
-  }
-
-  struct Symbol *symbol = NULL;
-  for (int i = 0; i < table->count; i++) {
-    symbol = &table->symbols[i];
-    if (strcmp(symbol->name, name) == 0) {
-      symbol->value = *value;
-      return;
-    }
-  }
-
-  if (table->count >= MAX_SYMBOLS) {
-    printf("Symbol table error: symbol table is full, no space left.\n");
-    return;
-  }
-
-  size_t symbol_len = strlen(name);
-  char *new_symbol = (char *)malloc(symbol_len+1);
-  if (new_symbol == NULL) {
-    printf("Symbol table error: couldn't allocate memory for new symbol\n");
-    return;
-  }
-
-  for (int i=0; i < symbol_len+1; i++) {
-    new_symbol[i] = '\0';
-  }
-  strncpy(new_symbol, name, symbol_len);
-
-  table->symbols[table->count].type = type;
-  table->symbols[table->count].name = new_symbol;
-  table->symbols[table->count].value = *value;
-  table->count++;
-
   return;
 }
 
@@ -1524,7 +1549,9 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     return EVAL_FAIL;
   }
 
-  if (node->kind == AST_DECLARATION) {
+  if (node->kind == AST_EMPTY) {
+    return EVAL_OK;
+  } else if (node->kind == AST_DECLARATION) {
     enum TypeKind declared_variable_type = node->declared_variable_type;
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
       printf("runtime error: declaration must have an identifier.\n");
@@ -2073,7 +2100,10 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     return FAIL;
   }
 
-  if (node->kind == AST_DECLARATION) {
+  if (node->kind == AST_EMPTY) {
+    node->type_kind = TYPE_UNUSED;
+    return SUCCESS;
+  } else if (node->kind == AST_DECLARATION) {
     enum TypeKind declared_variable_type = node->declared_variable_type;
 
     if (is_supported_type(declared_variable_type) == 0) {
@@ -2208,6 +2238,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     printf("Local symbol table after analyzing statement.\n");
     print_symbol_table(&local_semantic_table);
     freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
+    node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_IF) {
     if (node->condition == NULL) {
@@ -3496,15 +3527,35 @@ struct ASTNode * parse_declaration(struct Parser *p) {
   return node;
 }
 
+// empty -> ;
+struct ASTNode * parse_empty(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
 
-// statement -> declaration | print | block | if | while | break | continue | for_stmt | assignment
+  if (is_current_token(p, TOKEN_SEMICOLON)) {
+    expect_token(p, TOKEN_SEMICOLON);
+    struct ASTNode * node = createEmptyNode();
+    if (node == NULL) {
+      p->has_error = 1;
+    }
+
+    return node;
+  }
+
+  return NULL;
+}
+
+// statement -> empty | declaration | print | block | if | while | break | continue | for_stmt | assignment
 struct ASTNode * parse_statement(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
 
   struct ASTNode * node = NULL;
-  if (is_current_token(p, TOKEN_INT) || is_current_token(p, TOKEN_FLOAT)) {
+  if (is_current_token(p, TOKEN_SEMICOLON)) {
+    node = parse_empty(p);
+  } else if (is_current_token(p, TOKEN_INT) || is_current_token(p, TOKEN_FLOAT)) {
     node = parse_declaration(p);
   } else if (is_current_token(p, TOKEN_PRINT)) {
     node = parse_print_stmt(p);
@@ -3521,7 +3572,7 @@ struct ASTNode * parse_statement(struct Parser *p) {
   } else if (is_current_token(p, TOKEN_CONTINUE)) {
     node = parse_continue_stmt(p);
   } else if (is_current_token(p, TOKEN_IDENTIFIER)) {
-    if (((p->pos + 1) < BUFFER_SIZE) && is_next_token(p, TOKEN_EQUAL)) {
+    if (((p->pos + 1) < p->token_count) && is_next_token(p, TOKEN_EQUAL)) {
       node = parse_assignment(p);
     } else if (p->has_error == 0) {
       struct Token bad_token = current_token(p);
@@ -3572,9 +3623,6 @@ struct ASTNode * parse_program(struct Parser *p) {
 }
 
 int main(void) {
-  struct Token tokens[BUFFER_SIZE];
-  int token_count = 0;
-
   /*
   char *code = "x=123+45*2;";
   code="x=1+2+3;";
@@ -3667,6 +3715,9 @@ int main(void) {
   code="if (0) print(1); else print(9); if (3.14) print(2); else print(0); if (-2.0) print(2); else print(0); if (0.0) print(0); else print(8);";
   */
 
+  struct Token tokens[MAX_TOKENS];
+  int token_count = 0;
+
   struct stat istat;
   int ret = stat("./test.c", &istat);
   if (ret < 0) {
@@ -3713,6 +3764,7 @@ int main(void) {
   // Parser
   struct Parser p;
   p.tokens = tokens;
+  p.token_count = token_count;
   p.pos = 0;
   p.has_error = 0;
 
