@@ -196,6 +196,7 @@ Goal: complete a solid structured miniC front end + interpreter.
 - [x] `break`
 - [x] `continue`
 - [x] `for`
+- [ ] `do_while`
 - [ ] `return`
 
 #### General improvements
@@ -214,7 +215,8 @@ Goal: complete a solid structured miniC front end + interpreter.
 6. [x] `break`
 7. [x] `continue`
 8. [x] `for` version 1
-9. [ ] `for` version 2
+9. [x] `for` version 2
+10. [ ] `do_while`
 
 ---
 
