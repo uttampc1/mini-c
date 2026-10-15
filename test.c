@@ -181,3 +181,10 @@ for (i = 0; i < 3.0; i = i + 1) {
   print(i);
 }
 }
+{
+int x=0;
+for (; x < 3.0; x = x + 1) { print(x); }
+}
+int y;
+for (;;) { print(1); y=2; break; }
+for (x=0; x < 3; ) { print(x); x = x+1; }

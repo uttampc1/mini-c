@@ -317,7 +317,7 @@ int add_token(struct Token tokens[], int *token_count, enum TokenKind type, char
     *token_count = *token_count + 1;
     return SUCCESS;
   } else {
-    printf("error: no more tokens will be accepted. OOM\n");
+    printf("tokenizer error: no more tokens will be accepted. OOM\n");
     return FAIL;
   }
 }
@@ -664,7 +664,7 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
           idx += 2;
         }
       } else {
-        printf("error: unexpected character '&' after '&'\n");
+        printf("tokenizer error: unexpected character '&' after '&'\n");
         return FAIL;
       }
     } else if (is_or(code[idx])) {
@@ -674,7 +674,7 @@ int tokenize(char *code, struct Token tokens[], int *token_count) {
           idx += 2;
         }
       } else {
-        printf("error: unexpected character '|' after '|'\n");
+        printf("tokenizer error: unexpected character '|' after '|'\n");
         return FAIL;
       }
     } else if (is_lparen(code[idx])) {
@@ -776,7 +776,7 @@ void expect_token(struct Parser *p, enum TokenKind type) {
     advance_token(p);
   } else {
     p->has_error = 1;
-    printf("error: expected %s token, found %s token instead\n", token_type_name(type), token_type_name(t.type));
+    printf("tokenizer error: expected %s token, found %s token instead\n", token_type_name(type), token_type_name(t.type));
   }
   return;
 }
@@ -815,7 +815,7 @@ struct ASTNode * createASTNode() {
 struct ASTNode * createUnaryNode(enum TokenKind type) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for unary ASTNode\n");
+    printf("AST error: couldn't allocate memory for unary ASTNode\n");
     return NULL;
   }
 
@@ -827,7 +827,7 @@ struct ASTNode * createUnaryNode(enum TokenKind type) {
 struct ASTNode * createNumberNode(enum TypeKind type, char * value) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for number ASTNode\n");
+    printf("AST error: couldn't allocate memory for number ASTNode\n");
     return NULL;
   }
 
@@ -847,7 +847,7 @@ struct ASTNode * createNumberNode(enum TypeKind type, char * value) {
 struct ASTNode * createIdentifierNode(char *name) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for identifier ASTNode\n");
+    printf("AST error: couldn't allocate memory for identifier ASTNode\n");
     return NULL;
   }
 
@@ -862,7 +862,7 @@ struct ASTNode * createIdentifierNode(char *name) {
 struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode, struct ASTNode * rightNode) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for binary ASTNode\n");
+    printf("AST error: couldn't allocate memory for binary ASTNode\n");
     return NULL;
   }
 
@@ -876,7 +876,7 @@ struct ASTNode * createBinaryNode(enum TokenKind type, struct ASTNode * leftNode
 struct ASTNode * createDeclarationNode(enum TypeKind declaredType, struct ASTNode *ident, struct ASTNode * valueNode) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for identifier ASTNode\n");
+    printf("AST error: couldn't allocate memory for identifier ASTNode\n");
     return NULL;
   }
 
@@ -890,7 +890,7 @@ struct ASTNode * createDeclarationNode(enum TypeKind declaredType, struct ASTNod
 struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode * rightNode) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for assignment ASTNode\n");
+    printf("AST error: couldn't allocate memory for assignment ASTNode\n");
     return NULL;
   }
 
@@ -904,7 +904,7 @@ struct ASTNode * createAssignmentNode(struct ASTNode * leftNode, struct ASTNode 
 struct ASTNode * createPrintNode(struct ASTNode * expr) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for print ASTNode\n");
+    printf("AST error: couldn't allocate memory for print ASTNode\n");
     return NULL;
   }
 
@@ -917,7 +917,7 @@ struct ASTNode * createPrintNode(struct ASTNode * expr) {
 struct ASTNode * createBlockNode() {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for block ASTNode\n");
+    printf("AST error: couldn't allocate memory for block ASTNode\n");
     return NULL;
   }
 
@@ -928,7 +928,7 @@ struct ASTNode * createBlockNode() {
 struct ASTNode * createBreakNode() {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for break ASTNode\n");
+    printf("AST error: couldn't allocate memory for break ASTNode\n");
     return NULL;
   }
 
@@ -939,7 +939,7 @@ struct ASTNode * createBreakNode() {
 struct ASTNode * createContinueNode() {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for continue ASTNode\n");
+    printf("AST error: couldn't allocate memory for continue ASTNode\n");
     return NULL;
   }
 
@@ -950,7 +950,7 @@ struct ASTNode * createContinueNode() {
 struct ASTNode * createWhileNode(struct ASTNode * condition, struct ASTNode * body) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for while ASTNode\n");
+    printf("AST error: couldn't allocate memory for while ASTNode\n");
     return NULL;
   }
 
@@ -965,7 +965,7 @@ struct ASTNode * createForNode(struct ASTNode * init, struct ASTNode *  conditio
 
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for 'for' ASTNode\n");
+    printf("AST error: couldn't allocate memory for 'for' ASTNode\n");
     return NULL;
   }
 
@@ -980,7 +980,7 @@ struct ASTNode * createForNode(struct ASTNode * init, struct ASTNode *  conditio
 struct ASTNode * createIfNode(struct ASTNode * condition, struct ASTNode * then_stmt, struct ASTNode * else_stmt) {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for if ASTNode\n");
+    printf("AST error: couldn't allocate memory for if ASTNode\n");
     return NULL;
   }
 
@@ -995,7 +995,7 @@ struct ASTNode * createIfNode(struct ASTNode * condition, struct ASTNode * then_
 struct ASTNode * createProgramNode() {
   struct ASTNode * node = createASTNode();
   if (node == NULL) {
-    printf("error: couldn't allocate memory for program ASTNode\n");
+    printf("AST error: couldn't allocate memory for program ASTNode\n");
     return NULL;
   }
 
@@ -1061,7 +1061,7 @@ int add_statement_to_program(struct ASTNode * node, struct ASTNode * statement) 
   // program != NULL
   // program->kind == AST_PROGRAM
   // statement != NULL
-  if ( program && (program->kind == AST_PROGRAM) && (statement != NULL) ) {
+  if (program && (program->kind == AST_PROGRAM) && (statement != NULL) ) {
     int count = program->statement_count;
 
     if (count < BUFFER_SIZE) {
@@ -1105,7 +1105,6 @@ void initialize_symbol_table(struct SymbolTable *table, struct SymbolTable *pare
 // return symbol if it exists in current scope
 struct Symbol * lookup_symbol_current(struct SymbolTable *table, char *name) {
   if (table == NULL) {
-    printf("Symbol table pointer in null/invalid\n");
     return NULL;
   }
 
@@ -1123,7 +1122,6 @@ struct Symbol * lookup_symbol_current(struct SymbolTable *table, char *name) {
 // either it is found or parent is NULL.
 struct Symbol * lookup_symbol_visible(struct SymbolTable *table, char *name) {
   if (table == NULL) {
-    printf("Symbol table pointer in null/invalid\n");
     return NULL;
   }
 
@@ -1146,7 +1144,7 @@ struct Symbol * lookup_symbol_visible(struct SymbolTable *table, char *name) {
 void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, struct Value *value) {
   //printf("Add [%s] symbol to the table\n", name);
   if (table == NULL) {
-    printf("Symbol table pointer in null/invalid\n");
+    printf("Symbol table error: symbol table is not allocated\n");
     return;
   }
 
@@ -1160,14 +1158,14 @@ void store_symbol(struct SymbolTable *table, enum TypeKind type, char *name, str
   }
 
   if (table->count >= MAX_SYMBOLS) {
-    printf("symbol table is full, no space left.\n");
+    printf("Symbol table error: symbol table is full, no space left.\n");
     return;
   }
 
   size_t symbol_len = strlen(name);
   char *new_symbol = (char *)malloc(symbol_len+1);
   if (new_symbol == NULL) {
-    printf("error: couldn't allocate memory for new symbol\n");
+    printf("Symbol table error: couldn't allocate memory for new symbol\n");
     return;
   }
 
@@ -1251,7 +1249,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         return FAIL;
       }
     } else {
-      printf("error: unsupported unary operator\n");
+      printf("runtime error: unsupported unary operator\n");
       return FAIL;
     }
     return SUCCESS;
@@ -1290,7 +1288,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = leftNum.int_value * rightNum.int_value;
       } else if (operator_kind == TOKEN_SLASH) {
         if (rightNum.int_value == 0) {
-          printf("error: division by zero.\n");
+          printf("runtime error: division by zero.\n");
           return FAIL;
         }
         out_value->int_value = leftNum.int_value / rightNum.int_value;
@@ -1324,12 +1322,12 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
 
       } else if (operator_kind == TOKEN_PERCENT) {
         if (rightNum.int_value == 0) {
-          printf("error: modulo by zero.\n");
+          printf("runtime error: modulo by zero.\n");
           return FAIL;
         }
         out_value->int_value = leftNum.int_value % rightNum.int_value;
       } else {
-        printf("error: unsupported integer binary operator.\n");
+        printf("runtime error: unsupported integer binary operator.\n");
         return FAIL;
       }
     } else if (leftNum.type == TYPE_FLOAT && rightNum.type == TYPE_FLOAT) {
@@ -1344,7 +1342,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->float_value = leftNum.float_value * rightNum.float_value;
       } else if (operator_kind == TOKEN_SLASH) {
         if (rightNum.float_value == 0) {
-          printf("error: division by zero.\n");
+          printf("runtime error: division by zero.\n");
           return FAIL;
         }
         out_value->float_value = leftNum.float_value / rightNum.float_value;
@@ -1385,7 +1383,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = ret;
 
       } else {
-        printf("error: unsupported numeric binary operator.\n");
+        printf("runtime error: unsupported numeric binary operator.\n");
         return FAIL;
       }
     } else if (leftNum.type == TYPE_INT && rightNum.type == TYPE_FLOAT) {
@@ -1400,7 +1398,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->float_value = (double)leftNum.int_value * rightNum.float_value;
       } else if (operator_kind == TOKEN_SLASH) {
         if (rightNum.float_value == 0) {
-          printf("error: division by zero.\n");
+          printf("runtime error: division by zero.\n");
           return FAIL;
         }
         out_value->float_value = (double)leftNum.int_value / rightNum.float_value;
@@ -1440,7 +1438,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = ret;
 
       } else {
-        printf("error: unsupported numeric binary operator.\n");
+        printf("runtime error: unsupported numeric binary operator.\n");
         return FAIL;
       }
     } else if (leftNum.type == TYPE_FLOAT && rightNum.type == TYPE_INT) {
@@ -1455,7 +1453,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->float_value = leftNum.float_value * (double)rightNum.int_value;
       } else if (operator_kind == TOKEN_SLASH) {
         if (rightNum.int_value == 0) {
-          printf("error: division by zero.\n");
+          printf("runtime error: division by zero.\n");
           return FAIL;
         }
         out_value->float_value = leftNum.float_value / (double)rightNum.int_value;
@@ -1495,11 +1493,11 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
         out_value->int_value = ret;
 
       } else {
-        printf("error: unsupported numeric binary operator.\n");
+        printf("runtime error: unsupported numeric binary operator.\n");
         return FAIL;
       }
     } else {
-      printf("error: unsupported operand types.\n");
+      printf("runtime error: unsupported operand types.\n");
       return FAIL;
     }
 
@@ -1510,11 +1508,11 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
       *out_value = symbol->value;
       return SUCCESS;
     } else {
-      printf("error: undefined identifier (%s)\n", node->identifier_name);
+      printf("runtime error: undefined identifier (%s)\n", node->identifier_name);
       return FAIL;
     }
   } else {
-    printf("Invalid AST_NODE\n");
+    printf("runtime error: Invalid AST_NODE\n");
   }
 
   return FAIL;
@@ -1569,7 +1567,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       out_value.int_value = 0;
     }
 
-    printf("declared %s with initial value", identifier);
+    printf("runtime-msg : declared %s with initial value", identifier);
     if (out_value.type == TYPE_INT) {
       printf(" %d\n", out_value.int_value);
     } else if (out_value.type == TYPE_FLOAT) {
@@ -1689,7 +1687,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       }
 
       if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
-        printf("error: condition type must be numeric\n");
+        printf("runtime error: condition type must be numeric\n");
         return EVAL_FAIL;
       }
 
@@ -1709,43 +1707,38 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     }
     return EVAL_OK;
   } else if (node->kind == AST_FOR) {
-    if (node->init == NULL) {
-      return EVAL_FAIL;
-    }
-
-    if (node->condition == NULL) {
-      return EVAL_FAIL;
-    }
-
-    if (node->update == NULL) {
-      return EVAL_FAIL;
-    }
-
     if (node->body == NULL) {
       return EVAL_FAIL;
     }
 
     // evaluate initialization - table should have updated value for the symbol
-    enum EvalResult eval_ret = eval_statement(node->init, table);
-    if (eval_ret == EVAL_FAIL) {
-      return EVAL_FAIL;
+    enum EvalResult eval_ret = EVAL_OK;
+    if (node->init != NULL) {
+      eval_ret = eval_statement(node->init, table);
+      if (eval_ret == EVAL_FAIL) {
+        return EVAL_FAIL;
+      }
     }
 
+    int ret;
     while(1) {
       struct Value expr_value;
-      int ret = eval_expression(node->condition, table, &expr_value);
-      if (ret == FAIL) {
-        return EVAL_FAIL;
-      }
+      
+      if (node->condition != NULL) {
+        ret = eval_expression(node->condition, table, &expr_value);
+        if (ret == FAIL) {
+          return EVAL_FAIL;
+        }
 
-      if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
-        printf("error: condition type must be numeric\n");
-        return EVAL_FAIL;
-      }
+        if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
+          printf("runtime error: condition type must be numeric\n");
+          return EVAL_FAIL;
+        }
 
-      if ((expr_value.type == TYPE_INT && expr_value.int_value == 0)
-        || (expr_value.type == TYPE_FLOAT && expr_value.float_value == 0.0)) {
-        break;
+        if ((expr_value.type == TYPE_INT && expr_value.int_value == 0)
+          || (expr_value.type == TYPE_FLOAT && expr_value.float_value == 0.0)) {
+          break;
+        }
       }
 
       eval_ret = eval_statement(node->body, table);
@@ -1756,20 +1749,22 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       }
 
       // EVAL_OK or EVAL_CONTINUE
-      eval_ret = eval_statement(node->update, table);
-      if (eval_ret == EVAL_FAIL) {
-        return EVAL_FAIL;
+      if (node->update != NULL) {
+        eval_ret = eval_statement(node->update, table);
+        if (eval_ret == EVAL_FAIL) {
+          return EVAL_FAIL;
+        }
       }
     }
 
-    return EVAL_OK; //uttam
+    return EVAL_OK;
   } else if (node->kind == AST_BREAK) {
     return EVAL_BREAK;
   } else if (node->kind == AST_CONTINUE) {
     return EVAL_CONTINUE;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
-      printf("error: print statement missing expression\n");
+      printf("runtime error: print statement missing expression\n");
       return EVAL_FAIL;
     }
 
@@ -1870,18 +1865,18 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
     return symbol->type;
   } else if (node->kind == AST_BINARY) {
     if (is_supported_binary_operator(node->operator_kind) == 0) {
-      printf("error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
+      printf("semantic error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
       return TYPE_ERROR;
     }
 
     enum TypeKind leftType = analyze_expression_type(node->left, table);
     if (leftType == TYPE_ERROR) {
-      printf("error: left expression has unsupported type\n");
+      printf("semantic error: left expression has unsupported type\n");
       return TYPE_ERROR;
     }
     enum TypeKind rightType = analyze_expression_type(node->right, table);
     if (rightType == TYPE_ERROR) {
-      printf("error: right expression has unsupported type\n");
+      printf("semantic error: right expression has unsupported type\n");
       return TYPE_ERROR;
     }
     // int op int -> int
@@ -1900,41 +1895,41 @@ enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *
       } else if (leftType == TYPE_FLOAT && rightType  == TYPE_INT) {
         return TYPE_FLOAT;
       } else {
-        printf("error: binary arithmetic expression operands have type error.\n");
+        printf("semantic error: binary arithmetic expression operands have type error.\n");
         return TYPE_ERROR;
       }
     } else if (operator_kind == TOKEN_PERCENT) {
       if (leftType == TYPE_INT && rightType  == TYPE_INT) {
         return TYPE_INT;
       } else {
-        printf("error: modulo operands must be of int type.\n");
+        printf("semantic error: modulo operands must be of int type.\n");
         return TYPE_ERROR;
       }
     } else {
       int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
       int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
       if (!left_numeric || !right_numeric) {
-        printf("error: comparison operands must be numeric.\n");
+        printf("semantic error: comparison operands must be numeric.\n");
         return TYPE_ERROR;
       }
       return TYPE_INT;
     }
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
-      printf("error: unary expression missing operand\n");
+      printf("semantic error: unary expression missing operand\n");
       return TYPE_ERROR;
     }
 
     enum TypeKind operand_type = analyze_expression_type(node->left, table);
     if (is_supported_type(operand_type) == 0) {
-      printf("error: expression has unsupported type\n");
+      printf("semantic error: expression has unsupported type\n");
       return TYPE_ERROR;
     }
 
     return operand_type;
   }
 
-  printf("error: unsupported expression for type check analysis: %s\n", ast_node_type_name(node->kind));
+  printf("semantic error: unsupported expression for type check analysis: %s\n", ast_node_type_name(node->kind));
   return TYPE_ERROR;
 }
 
@@ -1949,19 +1944,19 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
 
   if (node->kind == AST_NUMBER) {
     if (node->type_kind != TYPE_INT && node->type_kind != TYPE_FLOAT) {
-      printf("error: number expression has invalid type\n");
+      printf("semantic error: number expression has invalid type\n");
       return FAIL;
     }
 
     return SUCCESS;
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
-      printf("error: unary expression missing operand\n");
+      printf("semantic error: unary expression missing operand\n");
       return FAIL;
     };
 
     if (node->operator_kind != TOKEN_MINUS && node->operator_kind != TOKEN_PLUS && node->operator_kind != TOKEN_BANG) {
-      printf("error: unsupported unary operator %s\n", token_type_name(node->operator_kind));
+      printf("semantic error: unsupported unary operator %s\n", token_type_name(node->operator_kind));
       return FAIL;
     }
     int ret = analyze_expression(node->left, table);
@@ -1982,7 +1977,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
         node->type_kind = child_type;
       }
     } else {
-      printf("error: currently minic only support INT/FLOAT types for operands\n");
+      printf("semantic error: currently minic only support INT/FLOAT types for operands\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -1992,11 +1987,11 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
       node->type_kind = TYPE_ERROR;
-      printf("error: use of undeclared identifier %s\n", identifier);
+      printf("semantic error: use of undeclared identifier %s\n", identifier);
       return FAIL;
     }
     if (symbol->type == TYPE_ERROR || symbol->type == TYPE_UNKNOWN || symbol->type == TYPE_UNUSED) {
-      printf("error: identifier has not type information %s\n", identifier);
+      printf("semantic error: identifier has not type information %s\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2004,7 +1999,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     return SUCCESS;
   } else if (node->kind == AST_BINARY) {
     if (is_supported_binary_operator(node->operator_kind) == 0) {
-      printf("error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
+      printf("semantic error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2024,7 +2019,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     enum TypeKind rightType = analyze_expression_type(node->right, table);
 
     if (leftType == TYPE_ERROR || rightType == TYPE_ERROR) {
-      printf("error: unsupported types found. Left has: %s and right: %s types \n",
+      printf("semantic error: unsupported types found. Left has: %s and right: %s types \n",
         typekind_type_name(leftType), typekind_type_name(rightType));
       node->type_kind = TYPE_ERROR;
       return FAIL;
@@ -2043,7 +2038,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       } else if (leftType == TYPE_FLOAT && rightType  == TYPE_INT) {
         node->type_kind = TYPE_FLOAT;
       } else {
-        printf("error: binary arithmetic expression operands have type error.\n");
+        printf("semantic error: binary arithmetic expression operands have type error.\n");
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
@@ -2051,7 +2046,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       if (leftType == TYPE_INT && rightType  == TYPE_INT) {
         return TYPE_INT;
       } else {
-        printf("error: invalid operand to binary expression modulo (%%) requires integer types.\n");
+        printf("semantic error: invalid operand to binary expression modulo (%%) requires integer types.\n");
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
@@ -2059,7 +2054,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
       int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
       if (!left_numeric || !right_numeric) {
-        printf("error: comparison operands must be numeric.\n");
+        printf("semantic error: comparison operands must be numeric.\n");
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
@@ -2069,7 +2064,7 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
     return SUCCESS;
   }
 
-  printf("error: unsupported expression ASTNode: %s\n", ast_node_type_name(node->kind));
+  printf("semantic error: unsupported expression ASTNode: %s\n", ast_node_type_name(node->kind));
   return FAIL;
 }
 
@@ -2082,14 +2077,14 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     enum TypeKind declared_variable_type = node->declared_variable_type;
 
     if (is_supported_type(declared_variable_type) == 0) {
-      printf("error: unsupported data type declaration: %s type.\n",
+      printf("semantic error: unsupported data type declaration: %s type.\n",
         typekind_type_name(declared_variable_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: declarationi statement must target a valid variable identifier\n");
+      printf("semantic error: declarationi statement must target a valid variable identifier\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2098,7 +2093,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     struct Symbol *symbol = lookup_symbol_current(table, identifier);
     if (symbol) {
-      printf("error: redeclaration of identifier '%s' is illegal in this scope.\n", identifier);
+      printf("semantic error: redeclaration of identifier '%s' is illegal in this scope.\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2118,8 +2113,8 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       }
 
       if (is_assignment_compatible(declared_variable_type, rhs_expr_type) == 0) {
-        printf("error: intializer assignment type mismatch for identifier '%s'\n", identifier);
-        printf("error: expected %s but found experssion type %s\n",
+        printf("semantic error: intializer assignment type mismatch for identifier '%s'\n", identifier);
+        printf("semantic error: expected %s but found experssion type %s\n",
           typekind_type_name(declared_variable_type), typekind_type_name(rhs_expr_type));
         node->type_kind = TYPE_ERROR;
         return FAIL;
@@ -2144,7 +2139,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
   } else if (node->kind == AST_ASSIGNMENT) {
 
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("error: left side of an assignment statement must be an identifier\n");
+      printf("semantic error: left side of an assignment statement must be an identifier\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2152,13 +2147,13 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     char *identifier = node->left->identifier_name;
     struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
-      printf("error: assignment to undeclared identifier %s\n", identifier);
+      printf("semantic error: assignment to undeclared identifier %s\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (is_supported_type(symbol->type) == 0) {
-      printf("error: unsupported type found: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
+      printf("semantic error: unsupported type found: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2166,7 +2161,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     node->left->type_kind = symbol->type;
 
     if (node->right == NULL) {
-      printf("error: missing assignment value for identifier %s\n", identifier);
+      printf("semantic error: missing assignment value for identifier %s\n", identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2185,8 +2180,8 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     if (is_assignment_compatible(symbol->type, rhs_expr_type) == 0) {
-      printf("error: assignment type mismatch for identifier %s\n", identifier);
-      printf("error: expected %s but found %s type.\n",
+      printf("semantic error: assignment type mismatch for identifier %s\n", identifier);
+      printf("semantic error: expected %s but found %s type.\n",
         typekind_type_name(symbol->type), typekind_type_name(rhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
@@ -2216,7 +2211,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     return SUCCESS;
   } else if (node->kind == AST_IF) {
     if (node->condition == NULL) {
-      printf("error: if statement requires an expression to evaluate\n");
+      printf("semantic error: if statement requires an expression to evaluate\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2235,13 +2230,13 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     if (lhs_expr_type != TYPE_INT && lhs_expr_type != TYPE_FLOAT) {
-      printf("error: condition expression only supports numeric types but returned: %s\n", typekind_type_name(lhs_expr_type));
+      printf("semantic error: condition expression only supports numeric types but returned: %s\n", typekind_type_name(lhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (node->then_branch == NULL) {
-      printf("error: if statement requires a then statement.\n");
+      printf("semantic error: if statement requires a then statement.\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2264,7 +2259,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     return SUCCESS;
   } else if (node->kind == AST_WHILE) {
     if (node->condition == NULL) {
-      printf("error: while requires an expression to evaluate\n");
+      printf("semantic error: while requires an expression to evaluate\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2277,19 +2272,19 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     enum TypeKind lhs_expr_type = analyze_expression_type(node->condition, table);
     if (lhs_expr_type == TYPE_ERROR) {
-      printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
+      printf("semantic error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (lhs_expr_type != TYPE_INT && lhs_expr_type != TYPE_FLOAT) {
-      printf("error: condition type must be numeric, but returned: %s\n", typekind_type_name(lhs_expr_type));
+      printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(lhs_expr_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
     if (node->body == NULL) {
-      printf("error: while loop missing body.\n");
+      printf("semantic error: while loop missing body.\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2313,73 +2308,59 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_FOR) {
-
-    // Handle init condition as an assignment
-    if (node->init == NULL) {
-      printf("error: for requires an initialization statement.\n");
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
+    int ret=0;
     struct LoopFrame loop_frame;
     loop_frame.kind = AST_FOR;
     loop_frame.prev = ctx->current_loop;
     ctx->current_loop = &loop_frame;
 
-    int ret = analyze_statement(node->init, table, ctx);
-    if (ret == FAIL) {
-      node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
-      return FAIL;
+    // if exists, handle init statement
+    if (node->init != NULL) {
+      ret = analyze_statement(node->init, table, ctx);
+      if (ret == FAIL) {
+        node->type_kind = TYPE_ERROR;
+        ctx->current_loop = ctx->current_loop->prev;
+        return FAIL;
+      }
     }
 
-    // Handle condition like an expression
-    if (node->condition == NULL) {
-      printf("error: for requires an expression to evaluate\n");
-      node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
-      return FAIL;
+    // if exists, handle condition like an expression
+    if (node->condition != NULL) {
+      ret = analyze_expression(node->condition, table);
+      if (ret == FAIL) {
+        node->type_kind = TYPE_ERROR;
+        ctx->current_loop = ctx->current_loop->prev;
+        return FAIL;
+      }
+
+      enum TypeKind condition_type = analyze_expression_type(node->condition, table);
+      if (condition_type == TYPE_ERROR) {
+        node->type_kind = TYPE_ERROR;
+        ctx->current_loop = ctx->current_loop->prev;
+        return FAIL;
+      }
+
+      if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
+        printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(condition_type));
+        node->type_kind = TYPE_ERROR;
+        ctx->current_loop = ctx->current_loop->prev;
+        return FAIL;
+      }
     }
 
-    ret = analyze_expression(node->condition, table);
-    if (ret == FAIL) {
-      node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
-      return FAIL;
-    }
-
-    enum TypeKind condition_type = analyze_expression_type(node->condition, table);
-    if (condition_type == TYPE_ERROR) {
-      printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(condition_type));
-      node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
-      return FAIL;
-    }
-
-    if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
-      printf("error: condition type must be numeric, but returned: %s\n", typekind_type_name(condition_type));
-      node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
-      return FAIL;
-    }
-
-    // Handle update like an assignment
-    if (node->update == NULL) {
-      printf("error: for requires a update expression\n");
-      node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
-      return FAIL;
-    }
-
-    ret = analyze_statement(node->update, table, ctx);
-    if (ret == FAIL) {
-      node->type_kind = TYPE_ERROR;
-      ctx->current_loop = ctx->current_loop->prev;
-      return FAIL;
+    // if exists handle update like statement
+    if (node->update != NULL) {
+      ret = analyze_statement(node->update, table, ctx);
+      if (ret == FAIL) {
+        node->type_kind = TYPE_ERROR;
+        ctx->current_loop = ctx->current_loop->prev;
+        return FAIL;
+      }
     }
 
     // Handle body like an block
-      printf("error: for loop missing body.\n");
+    if (node->body == NULL) {
+      printf("semantic error: for loop missing body.\n");
       node->type_kind = TYPE_ERROR;
       ctx->current_loop = ctx->current_loop->prev;
       return FAIL;
@@ -2401,7 +2382,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     // if ctx object does not have a loop_frame then this is a sematic error
     // since break can not be out side the loop construct, while, for, do-while
     if (ctx->current_loop == NULL) {
-      printf("error: break statement not inside a loop, semantic error\n");
+      printf("semantic error: break statement not inside a loop, semantic error\n");
       return FAIL;
     }
     node->type_kind = TYPE_UNUSED;
@@ -2410,14 +2391,14 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     // if ctx object does not have a loop_frame then this is a sematic error
     // since continue can not be out side the loop construct, while, for, do-while
     if (ctx->current_loop == NULL) {
-      printf("error: continue statement not inside a loop, semantic error\n");
+      printf("semantic error: continue statement not inside a loop, semantic error\n");
       return FAIL;
     }
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_PRINT) {
     if (node->left == NULL) {
-      printf("error: print statement requires an expression\n");
+      printf("semantic error: print statement requires an expression\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2439,18 +2420,18 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     return SUCCESS;
   }
 
-  printf("error: unsupported statement ASTNode: %s\n", ast_node_type_name(node->kind));
+  printf("semantic error: unsupported statement ASTNode: %s\n", ast_node_type_name(node->kind));
   return FAIL;
 }
 
 int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx) {
   if (node == NULL) {
-    printf("error: program node is NULL\n");
+    printf("semantic error: program node is NULL\n");
     return FAIL;
   }
 
   if (node->kind != AST_PROGRAM) {
-    printf("error: analyze_program expected AST_PROGRAM node.\n");
+    printf("semantic error: analyze_program expected AST_PROGRAM node.\n");
     return FAIL;
   }
 
@@ -2617,9 +2598,9 @@ struct ASTNode * parse_unary(struct Parser *p) {
     if ( child == NULL ) {
       if (p->has_error == 0) {
         p->has_error = 1;
-        printf("error: missing operand expression following '%s' unary operator\n", token_type_name(token.type));
+        printf("parse error: missing operand expression following '%s' unary operator\n", token_type_name(token.type));
       } else {
-        printf("error: invalid operand expression following '%s' unary operator\n", token_type_name(token.type));
+        printf("parse error: invalid operand expression following '%s' unary operator\n", token_type_name(token.type));
       }
       return NULL;
     }
@@ -2670,9 +2651,9 @@ struct ASTNode * parse_factor(struct Parser *p) {
     if (right == NULL) {
       if (p->has_error == 0) {
         p->has_error = 1;
-        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+        printf("parse error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
       } else {
-        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+        printf("parse error: invalid expression following '%s' operator\n", token_type_name(token.type));
       }
       freeASTNode(left);
       return NULL;
@@ -2718,9 +2699,9 @@ struct ASTNode * parse_term(struct Parser *p) {
     if (right == NULL) {
       if (p->has_error == 0) {
         p->has_error = 1;
-        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+        printf("parse error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
       } else {
-        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+        printf("parse error: invalid expression following '%s' operator\n", token_type_name(token.type));
       }
       freeASTNode(left);
       return NULL;
@@ -2770,9 +2751,9 @@ struct ASTNode * parse_comparison(struct Parser *p) {
     if (right == NULL) {
       if (p->has_error == 0) {
         p->has_error = 1;
-        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+        printf("parse error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
       } else {
-        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+        printf("parse error: invalid expression following '%s' operator\n", token_type_name(token.type));
       }
       freeASTNode(left);
       return NULL;
@@ -2818,9 +2799,9 @@ struct ASTNode * parse_equality(struct Parser *p) {
     if (right == NULL) {
       if (p->has_error == 0) {
         p->has_error = 1;
-        printf("error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
+        printf("parse error: missing expression on right-hand side of '%s' operator\n", token_type_name(token.type));
       } else {
-        printf("error: invalid expression following '%s' operator\n", token_type_name(token.type));
+        printf("parse error: invalid expression following '%s' operator\n", token_type_name(token.type));
       }
       freeASTNode(left);
       return NULL;
@@ -2863,9 +2844,9 @@ struct ASTNode * parse_logical_and(struct Parser *p) {
     if (right == NULL) {
       if (p->has_error == 0) {
         p->has_error = 1;
-        printf("error: missing expression on right-hand side of '&&' operator\n");
+        printf("parse error: missing expression on right-hand side of '&&' operator\n");
       } else {
-        printf("error: invalid expression following '&&' operator\n");
+        printf("parse error: invalid expression following '&&' operator\n");
       }
       freeASTNode(left);
       return NULL;
@@ -2908,9 +2889,9 @@ struct ASTNode * parse_logical_or(struct Parser *p) {
     if (right == NULL) {
       if (p->has_error == 0) {
         p->has_error = 1;
-        printf("error: missing expression on right-hand side of '||' operator\n");
+        printf("parse error: missing expression on right-hand side of '||' operator\n");
       } else {
-        printf("error: invalid expression following '||' operator\n");
+        printf("parse error: invalid expression following '||' operator\n");
       }
       freeASTNode(left);
       return NULL;
@@ -3006,7 +2987,7 @@ struct ASTNode * parse_assignment_core(struct Parser *p) {
 
   expect_token(p, TOKEN_EQUAL);
   if (p->has_error) {
-    printf("error: expected '=' after variable identifier in assignment statement\n");
+    printf("parse error: expected '=' after variable identifier in assignment statement\n");
     freeASTNode(left);
     return NULL;
   }
@@ -3015,9 +2996,9 @@ struct ASTNode * parse_assignment_core(struct Parser *p) {
   if (right == NULL ) {
     if (p->has_error == 0) {
       p->has_error = 1;
-      printf("error: missing expression on right-hand side of assignment statement\n");
+      printf("parse error: missing expression on right-hand side of assignment statement\n");
     } else {
-      printf("error: invalid expression inside assignment statement\n");
+      printf("parse error: invalid expression inside assignment statement\n");
     }
     freeASTNode(left);
     return NULL;
@@ -3046,7 +3027,7 @@ struct ASTNode * parse_assignment(struct Parser *p) {
 
   expect_token(p, TOKEN_SEMICOLON);
   if (p->has_error) {
-    printf("error: expected ';' to terminate assignment statement\n");
+    printf("parse error: expected ';' to terminate assignment statement\n");
     freeASTNode(node);
     return NULL;
   }
@@ -3067,14 +3048,14 @@ struct ASTNode * parse_print_stmt(struct Parser *p) {
 
   parse_lparen(p);
   if ( p->has_error ) {
-    printf("error: expected '(' after print statement\n");
+    printf("parse error: expected '(' after print statement\n");
     return NULL;
   }
 
   struct ASTNode * expr = parse_expression(p);
   if (expr == NULL) {
     if (p->has_error == 0) {
-      printf("error: expected input value to print statement\n");
+      printf("parse error: expected input value to print statement\n");
       p->has_error = 1;
     }
     return NULL;
@@ -3082,7 +3063,7 @@ struct ASTNode * parse_print_stmt(struct Parser *p) {
 
   parse_rparen(p);
   if (p->has_error) {
-    printf("error: expected ')' for print statement\n");
+    printf("parse error: expected ')' for print statement\n");
     freeASTNode(expr);
     return NULL;
   }
@@ -3122,7 +3103,7 @@ struct ASTNode * parse_block(struct Parser *p) {
   while (p->has_error == 0) {
 
     if (is_current_token(p, TOKEN_EOF)) {
-      printf("error: expected } to end block scope but found EOF\n");
+      printf("parse error: expected } to end block scope but found EOF\n");
       p->has_error=1;
       freeASTNode(block);
       return NULL;
@@ -3133,9 +3114,9 @@ struct ASTNode * parse_block(struct Parser *p) {
       if (statement == NULL) {
         if (p->has_error == 0) {
           p->has_error=1;
-          printf("error: invalid or unrecognized statement within block scope.\n");
+          printf("parse error: invalid or unrecognized statement within block scope.\n");
         } else {
-          printf("error: invalid statement found within block scope.\n");
+          printf("parse error: invalid statement found within block scope.\n");
         }
         freeASTNode(block);
         return NULL;
@@ -3181,67 +3162,76 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
   // check and consume opening parenthesis
   parse_lparen(p);
   if (p->has_error) {
-    printf("error: expected '(' after for keyword\n");
+    printf("parse error: expected '(' after for keyword\n");
     return NULL;
   }
 
   // get the init part
-  struct ASTNode * init_node = parse_assignment_core(p);
-  if (init_node == NULL) {
-    if (p->has_error == 0) {
-      printf("error: missing initialization assignment in for_statement\n");
-      p->has_error = 1;
-    } else {
-      printf("error: invalid initialization in for_statement\n");
+  struct ASTNode * init_node = NULL;
+  if (!is_current_token(p, TOKEN_SEMICOLON)) {
+    init_node = parse_assignment_core(p);
+    if (init_node == NULL) {
+      if (p->has_error == 0) {
+        printf("parse error: missing initialization in for_statement\n");
+        p->has_error = 1;
+      } else {
+        printf("parse error: invalid initialization in for_statement\n");
+      }
+      return NULL;
     }
-    return NULL;
   }
 
   expect_token(p, TOKEN_SEMICOLON); // This consumes ';', error otherwise
   if (p->has_error) {
-    printf("error: missing ; after initialization assignment in for_statement\n");
+    printf("parse error: missing ; after initialization in for_statement\n");
     freeASTNode(init_node);
     return NULL;
   }
 
   // get the condition expression
-  struct ASTNode * condition = parse_expression(p);
-  if (condition == NULL) {
-    if (p->has_error == 0) {
-      printf("error: missing condition in for_statement\n");
-      p->has_error = 1;
-    } else {
-      printf("error: invalid condition inside for_statement condition.\n");
+  struct ASTNode * condition = NULL;
+  if (!is_current_token(p, TOKEN_SEMICOLON)) {
+    condition = parse_expression(p);
+    if (condition == NULL) {
+      if (p->has_error == 0) {
+        printf("parse error: missing condition in for_statement\n");
+        p->has_error = 1;
+      } else {
+        printf("parse error: invalid condition inside for_statement condition.\n");
+      }
+      freeASTNode(init_node);
+      return NULL;
     }
-    freeASTNode(init_node);
-    return NULL;
   }
 
   expect_token(p, TOKEN_SEMICOLON); // This consumes ';', error otherwise
   if (p->has_error) {
-    printf("error: missing ; after condition in for_statement\n");
+    printf("parse error: missing ; after condition in for_statement\n");
     freeASTNode(init_node);
     freeASTNode(condition);
     return NULL;
   }
 
   // get the update expression
-  struct ASTNode * update_node = parse_assignment_core(p);
-  if (update_node == NULL) {
-    if (p->has_error == 0) {
-      printf("error: missing update expression in for_statement\n");
-      p->has_error = 1;
-    } else {
-      printf("error: invalid update expression inside for_statement.\n");
+  struct ASTNode * update_node = NULL;
+  if (!is_current_token(p, TOKEN_RPAREN)) {
+    update_node = parse_assignment_core(p);
+    if (update_node == NULL) {
+      if (p->has_error == 0) {
+        printf("parse error: missing update expression in for_statement\n");
+        p->has_error = 1;
+      } else {
+        printf("parse error: invalid update expression inside for_statement.\n");
+      }
+      freeASTNode(init_node);
+      freeASTNode(condition);
+      return NULL;
     }
-    freeASTNode(init_node);
-    freeASTNode(condition);
-    return NULL;
   }
 
   parse_rparen(p); // This consumes ')', error otherwise
   if (p->has_error) {
-    printf("error: missing closing parenthesis in for_statement\n");
+    printf("parse error: missing closing parenthesis in for_statement\n");
     freeASTNode(init_node);
     freeASTNode(condition);
     freeASTNode(update_node);
@@ -3253,9 +3243,9 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
   if (body_stmt == NULL) {
     if (p->has_error == 0) {
       p->has_error = 1;
-      printf("error: missing statement in for body.\n");
+      printf("parse error: missing statement in for body.\n");
     } else {
-      printf("error: invalid statement in for body.\n");
+      printf("parse error: invalid statement in for body.\n");
     }
     freeASTNode(init_node);
     freeASTNode(condition);
@@ -3263,10 +3253,10 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
     return NULL;
   }
 
-  // no declaration allowed as the directy for body
+  // no declaration allowed as the direct for body
   if (body_stmt->kind == AST_DECLARATION) {
     p->has_error = 1;
-    printf("error: direct declaration is not allowed as body; use a block\n");
+    printf("parse error: direct declaration is not allowed as body; use a block\n");
     freeASTNode(init_node);
     freeASTNode(condition);
     freeASTNode(update_node);
@@ -3303,24 +3293,24 @@ struct ASTNode * parse_while_stmt(struct Parser *p) {
   // check and consume opening parenthesis
   parse_lparen(p);
   if (p->has_error) {
-    printf("error: expected '(' after while statement\n");
+    printf("parse error: expected '(' after while statement\n");
     return NULL;
   }
 
   struct ASTNode * expr = parse_expression(p);
   if (expr == NULL) {
     if (p->has_error == 0) {
-      printf("error: missing expression in while statement\n");
+      printf("parse error: missing expression in while statement\n");
       p->has_error = 1;
     } else {
-      printf("error: invalid expression inside while statement condition.\n");
+      printf("parse error: invalid expression inside while statement condition.\n");
     }
     return NULL;
   }
 
   parse_rparen(p); // This consumes ')', error otherwise
   if (p->has_error) {
-    printf("error: missing closing parenthesis in while statement\n");
+    printf("parse error: missing closing parenthesis in while statement\n");
     freeASTNode(expr);
     return NULL;
   }
@@ -3330,9 +3320,9 @@ struct ASTNode * parse_while_stmt(struct Parser *p) {
   if (body_stmt == NULL) {
     if (p->has_error == 0) {
       p->has_error = 1;
-      printf("error: missing statement in while body.\n");
+      printf("parse error: missing statement in while body.\n");
     } else {
-      printf("error: invalid statement in while body.\n");
+      printf("parse error: invalid statement in while body.\n");
     }
     freeASTNode(expr);
     return NULL;
@@ -3341,7 +3331,7 @@ struct ASTNode * parse_while_stmt(struct Parser *p) {
   // no declaration allowed as the directy then body
   if (body_stmt->kind == AST_DECLARATION) {
     p->has_error = 1;
-    printf("error: direct declaration is not allowed as body; use a block\n");
+    printf("parse error: direct declaration is not allowed as body; use a block\n");
     freeASTNode(expr);
     freeASTNode(body_stmt);
     return NULL;
@@ -3373,20 +3363,20 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
   // check and consume opening parenthesis
   parse_lparen(p);
   if (p->has_error) {
-    printf("error: expected '(' after if statement\n");
+    printf("parse error: expected '(' after if statement\n");
     return NULL;
   }
 
   struct ASTNode * expr = parse_expression(p);
   if (expr == NULL) {
     p->has_error = 1;
-    printf("error: missing expression in if statement\n");
+    printf("parse error: missing expression in if statement\n");
     return NULL;
   }
 
   parse_rparen(p); // This consumes ')', error otherwise
   if ( p->has_error ) {
-    printf("error: missing closing parenthesis in if statement\n");
+    printf("parse error: missing closing parenthesis in if statement\n");
     freeASTNode(expr);
    return NULL;
   }
@@ -3395,14 +3385,14 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
   struct ASTNode * then_stmt = parse_statement(p);
   if (then_stmt == NULL) {
     p->has_error = 1;
-    printf("error: missing then statement after if condition.\n");
+    printf("parse error: missing then statement after if condition.\n");
     freeASTNode(expr);
     return NULL;
   }
 
   // no declaration allowed as the directy then body
   if (then_stmt->kind == AST_DECLARATION) {
-    printf("error: direct declaration is not allowed as then-body; use a block\n");
+    printf("parse error: direct declaration is not allowed as then-body; use a block\n");
     p->has_error = 1;
     freeASTNode(expr);
     freeASTNode(then_stmt);
@@ -3421,7 +3411,7 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
 
     else_stmt = parse_statement(p);
     if (else_stmt == NULL) {
-      printf("error: expected statement after else\n");
+      printf("parse error: expected statement after else\n");
       p->has_error = 1;
       freeASTNode(expr);
       freeASTNode(then_stmt);
@@ -3429,7 +3419,7 @@ struct ASTNode * parse_if_stmt(struct Parser *p) {
     }
 
     if (else_stmt->kind == AST_DECLARATION) {
-      printf("error: direct declaration is not allowed as else-body; use a block\n");
+      printf("parse error: direct declaration is not allowed as else-body; use a block\n");
       p->has_error = 1;
       freeASTNode(expr);
       freeASTNode(then_stmt);
@@ -3535,7 +3525,7 @@ struct ASTNode * parse_statement(struct Parser *p) {
       node = parse_assignment(p);
     } else if (p->has_error == 0) {
       struct Token bad_token = current_token(p);
-      printf("error: found unexpected symbol '%.*s'\n", bad_token.length, bad_token.start);
+      printf("parse error: found unexpected symbol '%.*s'\n", bad_token.length, bad_token.start);
       p->has_error = 1;
       advance_token(p);
       return NULL;
@@ -3558,7 +3548,7 @@ struct ASTNode * parse_program(struct Parser *p) {
     struct ASTNode * statement = parse_statement(p);
     if (statement == NULL) {
       if (p->has_error == 0) {
-        printf("error: expected statement.\n");
+        printf("parse error: expected statement.\n");
         p->has_error = 1;
       }
       break;
