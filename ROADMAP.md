@@ -195,7 +195,7 @@ Goal: complete a solid structured miniC front end + interpreter.
 #### Statements to add
 - [x] `break`
 - [x] `continue`
-- [ ] `for`
+- [x] `for`
 - [ ] `return`
 
 #### General improvements
@@ -213,7 +213,8 @@ Goal: complete a solid structured miniC front end + interpreter.
 5. [x] `>=`
 6. [x] `break`
 7. [x] `continue`
-8. [ ] `for`
+8. [x] `for` version 1
+9. [ ] `for` version 2
 
 ---
 
