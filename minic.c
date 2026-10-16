@@ -173,8 +173,7 @@ struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
 struct ASTNode * createEmptyNode();
 
-enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table);
-int analyze_expression(struct ASTNode *node, struct SymbolTable *table);
+enum TypeKind analyze_expression(struct ASTNode *node, struct SymbolTable *table);
 int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx);
 int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx);
 
@@ -2007,128 +2006,40 @@ int eval_program(struct ASTNode * node, struct SymbolTable *table) {
   return SUCCESS;
 }
 
-enum TypeKind analyze_expression_type(struct ASTNode *node, struct SymbolTable *table) {
+// semantic analysis pass over AST - NO COMPUTE
+enum TypeKind analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
+
   if (node == NULL) {
     return TYPE_ERROR;
   }
 
   if (node->kind == AST_NUMBER) {
-    return node->type_kind;
-  } else if (node->kind == AST_IDENTIFIER) {
-
-    char *identifier = node->identifier_name;
-    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
-    if (symbol == NULL) {
-      return TYPE_ERROR;
-    }
-    return symbol->type;
-  } else if (node->kind == AST_BINARY) {
-    if (is_supported_binary_operator(node->operator_kind) == 0) {
-      printf("semantic error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
-      return TYPE_ERROR;
-    }
-
-    enum TypeKind leftType = analyze_expression_type(node->left, table);
-    if (leftType == TYPE_ERROR) {
-      printf("semantic error: left expression has unsupported type\n");
-      return TYPE_ERROR;
-    }
-    enum TypeKind rightType = analyze_expression_type(node->right, table);
-    if (rightType == TYPE_ERROR) {
-      printf("semantic error: right expression has unsupported type\n");
-      return TYPE_ERROR;
-    }
-    // int op int -> int
-    // float op float -> float
-    // float op int OR int op float -> promote to float
-
-    enum TokenKind operator_kind = node->operator_kind;
-    if (operator_kind == TOKEN_PLUS || operator_kind == TOKEN_MINUS ||
-        operator_kind == TOKEN_STAR || operator_kind == TOKEN_SLASH) {
-      if (leftType == TYPE_INT && rightType  == TYPE_INT) {
-        return TYPE_INT;
-      } else if (leftType == TYPE_FLOAT && rightType  == TYPE_FLOAT) {
-        return TYPE_FLOAT;
-      } else if (leftType == TYPE_INT && rightType  == TYPE_FLOAT) {
-        return TYPE_FLOAT;
-      } else if (leftType == TYPE_FLOAT && rightType  == TYPE_INT) {
-        return TYPE_FLOAT;
-      } else {
-        printf("semantic error: binary arithmetic expression operands have type error.\n");
-        return TYPE_ERROR;
-      }
-    } else if (operator_kind == TOKEN_PERCENT) {
-      if (leftType == TYPE_INT && rightType  == TYPE_INT) {
-        return TYPE_INT;
-      } else {
-        printf("semantic error: modulo operands must be of int type.\n");
-        return TYPE_ERROR;
-      }
-    } else {
-      int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
-      int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
-      if (!left_numeric || !right_numeric) {
-        printf("semantic error: comparison operands must be numeric.\n");
-        return TYPE_ERROR;
-      }
-      return TYPE_INT;
-    }
-  } else if (node->kind == AST_UNARY) {
-    if (node->left == NULL) {
-      printf("semantic error: unary expression missing operand\n");
-      return TYPE_ERROR;
-    }
-
-    enum TypeKind operand_type = analyze_expression_type(node->left, table);
-    if (is_supported_type(operand_type) == 0) {
-      printf("semantic error: expression has unsupported type\n");
-      return TYPE_ERROR;
-    }
-
-    return operand_type;
-  }
-
-  printf("semantic error: unsupported expression for type check analysis: %s\n", ast_node_type_name(node->kind));
-  return TYPE_ERROR;
-}
-
-// semantic analysis pass over AST - NO COMPUTE
-// - redeclaration is not allowed
-// - assignment target must already be declared
-// - identifiers used in expression must already be declared
-int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
-  if (node == NULL) {
-    return FAIL;
-  }
-
-  if (node->kind == AST_NUMBER) {
     if (node->type_kind != TYPE_INT && node->type_kind != TYPE_FLOAT) {
       printf("semantic error: number expression has invalid type\n");
-      return FAIL;
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
     }
 
-    return SUCCESS;
+    return node->type_kind;
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
       printf("semantic error: unary expression missing operand\n");
-      return FAIL;
-    };
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
 
     if (node->operator_kind != TOKEN_MINUS && node->operator_kind != TOKEN_PLUS && node->operator_kind != TOKEN_BANG) {
       printf("semantic error: unsupported unary operator %s\n", token_type_name(node->operator_kind));
-      return FAIL;
-    }
-    int ret = analyze_expression(node->left, table);
-    if (ret == FAIL) {
-      return FAIL;
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
     }
 
-    // check the type of left child and set the unary node's own type_kind
-    enum TypeKind child_type = analyze_expression_type(node->left, table);
+    enum TypeKind child_type = analyze_expression(node->left, table);
     if (child_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
-      return FAIL;
+      return TYPE_ERROR;
     }
+
     if (child_type == TYPE_INT || child_type == TYPE_FLOAT) {
       if (node->operator_kind == TOKEN_BANG) {
         node->type_kind = TYPE_INT;
@@ -2136,52 +2047,61 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
         node->type_kind = child_type;
       }
     } else {
-      printf("semantic error: currently minic only support INT/FLOAT types for operands\n");
+      printf("semantic error: currently minic only supports INT/FLOAT types for operands\n");
       node->type_kind = TYPE_ERROR;
-      return FAIL;
+      return TYPE_ERROR;
     }
-    return SUCCESS;
+    return node->type_kind;
   } else if (node->kind == AST_IDENTIFIER) {
     char *identifier = node->identifier_name;
+    if (identifier == NULL) {
+      printf("semantic error: identifier is empty?\n");
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
+
     struct Symbol *symbol = lookup_symbol_visible(table, identifier);
     if (symbol == NULL) {
-      node->type_kind = TYPE_ERROR;
       printf("semantic error: use of undeclared identifier %s\n", identifier);
-      return FAIL;
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
     }
     if (symbol->type == TYPE_ERROR || symbol->type == TYPE_UNKNOWN || symbol->type == TYPE_UNUSED) {
-      printf("semantic error: identifier has not type information %s\n", identifier);
+      printf("semantic error: identifier '%s' has no type information\n", identifier);
       node->type_kind = TYPE_ERROR;
-      return FAIL;
+      return TYPE_ERROR;
     }
     node->type_kind = symbol->type;
-    return SUCCESS;
+    return symbol->type;
   } else if (node->kind == AST_BINARY) {
+
     if (is_supported_binary_operator(node->operator_kind) == 0) {
       printf("semantic error: unsupported binary operator found: %s\n", token_type_name(node->operator_kind));
       node->type_kind = TYPE_ERROR;
-      return FAIL;
+      return TYPE_ERROR;
     }
 
-    int ret = analyze_expression(node->left, table);
-    if (ret == FAIL) {
+    if (node->left == NULL) {
+      printf("semantic error: binary operator missing left operand\n");
       node->type_kind = TYPE_ERROR;
-      return FAIL;
+      return TYPE_ERROR;
     }
-    ret = analyze_expression(node->right, table);
-    if (ret == FAIL) {
+
+    if (node->right == NULL) {
+      printf("semantic error: binary operator missing right operand\n");
       node->type_kind = TYPE_ERROR;
-      return FAIL;
+      return TYPE_ERROR;
     }
 
-    enum TypeKind leftType = analyze_expression_type(node->left, table);
-    enum TypeKind rightType = analyze_expression_type(node->right, table);
-
+    enum TypeKind leftType = analyze_expression(node->left, table);
+    enum TypeKind rightType = analyze_expression(node->right, table);
     if (leftType == TYPE_ERROR || rightType == TYPE_ERROR) {
+      /*
       printf("semantic error: unsupported types found. Left has: %s and right: %s types \n",
         typekind_type_name(leftType), typekind_type_name(rightType));
+      */
       node->type_kind = TYPE_ERROR;
-      return FAIL;
+      return TYPE_ERROR;
     }
 
     enum TokenKind operator_kind = node->operator_kind;
@@ -2199,32 +2119,53 @@ int analyze_expression(struct ASTNode *node, struct SymbolTable *table) {
       } else {
         printf("semantic error: binary arithmetic expression operands have type error.\n");
         node->type_kind = TYPE_ERROR;
-        return FAIL;
+        return TYPE_ERROR;
       }
+      node->type_kind = TYPE_INT;
+      return TYPE_INT;
+    } else if (operator_kind == TOKEN_ANDAND || operator_kind == TOKEN_OROR ||
+      operator_kind == TOKEN_EQUAL_EQUAL || operator_kind == TOKEN_BANG_EQUAL) {
+      if ((leftType != TYPE_INT && leftType  != TYPE_FLOAT) ||
+          (rightType != TYPE_INT && rightType  != TYPE_FLOAT)) {
+        printf("semantic error: logical/equality operands must be numeric.\n");
+        node->type_kind = TYPE_ERROR;
+        return TYPE_ERROR;
+      }
+
+      node->type_kind = TYPE_INT;
+      return TYPE_INT;
+    } else if (operator_kind == TOKEN_LESS || operator_kind == TOKEN_GREATER ||
+      operator_kind == TOKEN_LESS_EQUAL || operator_kind == TOKEN_GREATER_EQUAL) {
+      if ((leftType != TYPE_INT && leftType  != TYPE_FLOAT) ||
+          (rightType != TYPE_INT && rightType  != TYPE_FLOAT)) {
+        printf("semantic error: comparison operands must be numeric.\n");
+        node->type_kind = TYPE_ERROR;
+        return TYPE_ERROR;
+      }
+
+      node->type_kind = TYPE_INT;
+      return TYPE_INT;
     } else if (operator_kind == TOKEN_PERCENT) {
       if (leftType == TYPE_INT && rightType  == TYPE_INT) {
+        node->type_kind = TYPE_INT;
         return TYPE_INT;
       } else {
         printf("semantic error: invalid operand to binary expression modulo (%%) requires integer types.\n");
         node->type_kind = TYPE_ERROR;
-        return FAIL;
+        return TYPE_ERROR;
       }
     } else {
-      int left_numeric = (leftType == TYPE_INT || leftType == TYPE_FLOAT);
-      int right_numeric = (rightType == TYPE_INT || rightType == TYPE_FLOAT);
-      if (!left_numeric || !right_numeric) {
-        printf("semantic error: comparison operands must be numeric.\n");
-        node->type_kind = TYPE_ERROR;
-        return FAIL;
-      }
-      node->type_kind = TYPE_INT;
+      printf("semantic error: invalid binary operator found.\n");
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
     }
 
-    return SUCCESS;
+    return node->type_kind;
   }
 
   printf("semantic error: unsupported expression ASTNode: %s\n", ast_node_type_name(node->kind));
-  return FAIL;
+  node->type_kind = TYPE_ERROR;
+  return TYPE_ERROR;
 }
 
 int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct SemanticContext *ctx) {
@@ -2246,7 +2187,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("semantic error: declarationi statement must target a valid variable identifier\n");
+      printf("semantic error: declaration statement must target a valid variable identifier\n");
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2261,23 +2202,16 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     if (node->right != NULL) {
-      int ret = analyze_expression(node->right, table);
-      if (ret == FAIL) {
+      enum TypeKind expression_type = analyze_expression(node->right, table);
+      if (expression_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
 
-      enum TypeKind rhs_expr_type = analyze_expression_type(node->right, table);
-      if (rhs_expr_type == TYPE_ERROR) {
-        //printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
-        node->type_kind = TYPE_ERROR;
-        return FAIL;
-      }
-
-      if (is_assignment_compatible(declared_variable_type, rhs_expr_type) == 0) {
-        printf("semantic error: intializer assignment type mismatch for identifier '%s'\n", identifier);
-        printf("semantic error: expected %s but found experssion type %s\n",
-          typekind_type_name(declared_variable_type), typekind_type_name(rhs_expr_type));
+      if (is_assignment_compatible(declared_variable_type, expression_type) == 0) {
+        printf("semantic error: initializer assignment type mismatch for identifier '%s'\n", identifier);
+        printf("semantic error: expected %s but found expression type %s\n",
+          typekind_type_name(declared_variable_type), typekind_type_name(expression_type));
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
@@ -2315,7 +2249,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     if (is_supported_type(symbol->type) == 0) {
-      printf("semantic error: unsupported type found: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
+      printf("semantic error: unsupported type: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2328,23 +2262,16 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       return FAIL;
     }
 
-    int ret = analyze_expression(node->right, table);
-    if (ret == FAIL) {
+    enum TypeKind expression_type = analyze_expression(node->right, table);
+    if (expression_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    enum TypeKind rhs_expr_type = analyze_expression_type(node->right, table);
-    if (rhs_expr_type == TYPE_ERROR) {
-      //printf("error: RHS expression has unsupported type: %s\n", typekind_type_name(rhs_expr_type));
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    if (is_assignment_compatible(symbol->type, rhs_expr_type) == 0) {
+    if (is_assignment_compatible(symbol->type, expression_type) == 0) {
       printf("semantic error: assignment type mismatch for identifier %s\n", identifier);
       printf("semantic error: expected %s but found %s type.\n",
-        typekind_type_name(symbol->type), typekind_type_name(rhs_expr_type));
+        typekind_type_name(symbol->type), typekind_type_name(expression_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2379,21 +2306,15 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       return FAIL;
     }
 
-    int ret = analyze_expression(node->condition, table);
-    if (ret == FAIL) {
+    enum TypeKind condition_type = analyze_expression(node->condition, table);
+    if (condition_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    enum TypeKind lhs_expr_type = analyze_expression_type(node->condition, table);
-    if (lhs_expr_type == TYPE_ERROR) {
-      //printf("error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    if (lhs_expr_type != TYPE_INT && lhs_expr_type != TYPE_FLOAT) {
-      printf("semantic error: condition expression only supports numeric types but returned: %s\n", typekind_type_name(lhs_expr_type));
+    if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
+      printf("semantic error: condition expression only supports numeric types but returned: %s\n",
+        typekind_type_name(condition_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2404,7 +2325,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       return FAIL;
     }
 
-    ret = analyze_statement(node->then_branch, table, ctx);
+    int ret = analyze_statement(node->then_branch, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
@@ -2427,21 +2348,15 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       return FAIL;
     }
 
-    int ret = analyze_expression(node->condition, table);
-    if (ret == FAIL) {
+    enum TypeKind condition_type = analyze_expression(node->condition, table);
+    if (condition_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
 
-    enum TypeKind lhs_expr_type = analyze_expression_type(node->condition, table);
-    if (lhs_expr_type == TYPE_ERROR) {
-      printf("semantic error: condition expression returned unsupported type: %s\n", typekind_type_name(lhs_expr_type));
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    if (lhs_expr_type != TYPE_INT && lhs_expr_type != TYPE_FLOAT) {
-      printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(lhs_expr_type));
+    if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
+      printf("semantic error: condition type must be numeric, but returned: %s\n",
+        typekind_type_name(condition_type));
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
@@ -2458,7 +2373,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     ctx_frame.prev = ctx->current_ctx;
     ctx->current_ctx = &ctx_frame;
 
-    ret = analyze_statement(node->body, table, ctx);
+    int ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
       ctx->current_ctx = ctx->current_ctx->prev;
@@ -2491,14 +2406,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       return FAIL;
     }
 
-    ret = analyze_expression(node->condition, table);
-    if (ret == FAIL) {
-      node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
-      return FAIL;
-    }
-
-    enum TypeKind condition_type = analyze_expression_type(node->condition, table);
+    enum TypeKind condition_type = analyze_expression(node->condition, table);
     if (condition_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
       ctx->current_ctx = ctx->current_ctx->prev;
@@ -2506,16 +2414,17 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     }
 
     if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
-      printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(condition_type));
+      printf("semantic error: condition type must be numeric, but returned: %s\n",
+        typekind_type_name(condition_type));
       node->type_kind = TYPE_ERROR;
       ctx->current_ctx = ctx->current_ctx->prev;
       return FAIL;
     }
 
     ctx->current_ctx = ctx->current_ctx->prev;
+    node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_FOR) {
-    int ret=0;
     struct ContextFrame ctx_frame;
     ctx_frame.kind = AST_FOR;
     ctx_frame.prev = ctx->current_ctx;
@@ -2523,7 +2432,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     // if exists, handle init statement
     if (node->init != NULL) {
-      ret = analyze_statement(node->init, table, ctx);
+      int ret = analyze_statement(node->init, table, ctx);
       if (ret == FAIL) {
         node->type_kind = TYPE_ERROR;
         ctx->current_ctx = ctx->current_ctx->prev;
@@ -2533,14 +2442,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     // if exists, handle condition like an expression
     if (node->condition != NULL) {
-      ret = analyze_expression(node->condition, table);
-      if (ret == FAIL) {
-        node->type_kind = TYPE_ERROR;
-        ctx->current_ctx = ctx->current_ctx->prev;
-        return FAIL;
-      }
-
-      enum TypeKind condition_type = analyze_expression_type(node->condition, table);
+      enum TypeKind condition_type = analyze_expression(node->condition, table);
       if (condition_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
         ctx->current_ctx = ctx->current_ctx->prev;
@@ -2548,7 +2450,8 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       }
 
       if (condition_type != TYPE_INT && condition_type != TYPE_FLOAT) {
-        printf("semantic error: condition type must be numeric, but returned: %s\n", typekind_type_name(condition_type));
+        printf("semantic error: condition type must be numeric, but returned: %s\n",
+          typekind_type_name(condition_type));
         node->type_kind = TYPE_ERROR;
         ctx->current_ctx = ctx->current_ctx->prev;
         return FAIL;
@@ -2557,7 +2460,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     // if exists handle update like statement
     if (node->update != NULL) {
-      ret = analyze_statement(node->update, table, ctx);
+      int ret = analyze_statement(node->update, table, ctx);
       if (ret == FAIL) {
         node->type_kind = TYPE_ERROR;
         ctx->current_ctx = ctx->current_ctx->prev;
@@ -2573,7 +2476,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       return FAIL;
     }
 
-    ret = analyze_statement(node->body, table, ctx);
+    int ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
       ctx->current_ctx = ctx->current_ctx->prev;
@@ -2608,10 +2511,8 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
 
     enum TypeKind expression_type = TYPE_UNUSED;
     if (node->expression) {
-      expression_type = analyze_expression_type(node->expression, table);
-
-      int ret = analyze_expression(node->expression, table);
-      if (ret == FAIL) {
+      expression_type = analyze_expression(node->expression, table);
+      if (expression_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
         return FAIL;
       }
@@ -2632,14 +2533,8 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       return FAIL;
     }
 
-    int ret = analyze_expression(node->left, table);
-    if (ret == FAIL) {
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    enum TypeKind expr_type = analyze_expression_type(node->left, table);
-    if (expr_type == TYPE_ERROR) {
+    enum TypeKind expression_type = analyze_expression(node->left, table);
+    if (expression_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
       return FAIL;
     }
