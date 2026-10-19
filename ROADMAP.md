@@ -36,6 +36,7 @@ The goal is to build a correct and understandable compiler pipeline for a meanin
 - [x] `AST_PRINT`
 - [x] `AST_IF`
 - [x] `AST_WHILE`
+- [x] `AST_DO_WHILE`
 - [x] `AST_IDENTIFIER`
 - [x] `AST_NUMBER`
 - [x] `AST_UNARY`
@@ -70,6 +71,10 @@ The goal is to build a correct and understandable compiler pipeline for a meanin
 - [x] binary `/`
 - [x] comparison `<`
 - [x] comparison `>`
+- [x] comparison `<=`
+- [x] comparison `>=`
+- [x] comparison `&&`
+- [x] comparison `||`
 - [x] equality `==`
 - [x] inequality `!=`
 - [x] parentheses
