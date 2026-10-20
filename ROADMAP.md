@@ -222,7 +222,7 @@ Goal: complete a solid structured miniC front end + interpreter.
 8.  [x] `for` version 1
 9.  [x] `for` version 2
 10. [x] `do_while`
-10. [x] `return`
+11. [x] `return`
 
 ---
 

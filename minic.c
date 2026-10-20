@@ -1905,24 +1905,22 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
         return EVAL_FAIL;
       } else if (eval_ret == EVAL_BREAK) {
         break;
-      } else if (eval_ret == EVAL_CONTINUE) {
-        continue;
-      }
+      } else if (eval_ret == EVAL_CONTINUE || eval_ret == EVAL_OK) {
+        struct Value expr_value;
+        int ret = eval_expression(node->condition, table, &expr_value);
+        if (ret == FAIL) {
+          return EVAL_FAIL;
+        }
 
-      struct Value expr_value;
-      int ret = eval_expression(node->condition, table, &expr_value);
-      if (ret == FAIL) {
-        return EVAL_FAIL;
-      }
+        if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
+          printf("runtime error: condition type must be numeric\n");
+          return EVAL_FAIL;
+        }
 
-      if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
-        printf("runtime error: condition type must be numeric\n");
-        return EVAL_FAIL;
-      }
-
-      if ((expr_value.type == TYPE_INT && expr_value.int_value == 0)
-        || (expr_value.type == TYPE_FLOAT && expr_value.float_value == 0.0)) {
-        break;
+        if ((expr_value.type == TYPE_INT && expr_value.int_value == 0)
+          || (expr_value.type == TYPE_FLOAT && expr_value.float_value == 0.0)) {
+          break;
+        }
       }
     }
 
@@ -2404,15 +2402,23 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_WHILE) {
+    // push this loop information to the ctx object
+    struct ContextFrame ctx_frame;
+    ctx_frame.kind = AST_WHILE;
+    ctx_frame.prev = ctx->current_ctx;
+    ctx->current_ctx = &ctx_frame;
+
     if (node->condition == NULL) {
       printf("semantic error: while requires an expression to evaluate\n");
       node->type_kind = TYPE_ERROR;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
     enum TypeKind condition_type = analyze_expression(node->condition, table);
     if (condition_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
@@ -2420,31 +2426,26 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       printf("semantic error: condition type must be numeric, but returned: %s\n",
         typekind_type_name(condition_type));
       node->type_kind = TYPE_ERROR;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
     if (node->body == NULL) {
       printf("semantic error: while loop missing body.\n");
       node->type_kind = TYPE_ERROR;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
-
-    // push this loop information to the ctx object
-    struct ContextFrame ctx_frame;
-    ctx_frame.kind = AST_WHILE;
-    ctx_frame.prev = ctx->current_ctx;
-    ctx->current_ctx = &ctx_frame;
 
     int ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
     // pop the loop information from the ctx before returning
-    ctx->current_ctx = ctx->current_ctx->prev;
-
+    ctx->current_ctx = ctx_frame.prev;
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_DO_WHILE) {
@@ -2457,21 +2458,21 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     int ret = analyze_statement(node->body, table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
     if (node->condition == NULL) {
-      printf("semantic error: do-while requires an expression to evaluate\n");
+      printf("semantic error: do-while requires a condition expression\n");
       node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
     enum TypeKind condition_type = analyze_expression(node->condition, table);
     if (condition_type == TYPE_ERROR) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
@@ -2479,11 +2480,11 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       printf("semantic error: condition type must be numeric, but returned: %s\n",
         typekind_type_name(condition_type));
       node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
+      ctx->current_ctx = ctx_frame.prev;
       return FAIL;
     }
 
-    ctx->current_ctx = ctx->current_ctx->prev;
+    ctx->current_ctx = ctx_frame.prev;
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_FOR) {
@@ -2500,7 +2501,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
         int ret = analyze_statement(node->init, &local_semantic_table, ctx);
         if (ret == FAIL) {
           node->type_kind = TYPE_ERROR;
-          ctx->current_ctx = ctx->current_ctx->prev;
+          ctx->current_ctx = ctx_frame.prev;
           freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
           return FAIL;
         }
@@ -2508,7 +2509,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
         enum TypeKind init_expr_type = analyze_expression(node->init, &local_semantic_table);
         if (init_expr_type == TYPE_ERROR) {
           node->type_kind = TYPE_ERROR;
-          ctx->current_ctx = ctx->current_ctx->prev;
+          ctx->current_ctx = ctx_frame.prev;
           freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
           return FAIL;
         }
@@ -2519,7 +2520,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       enum TypeKind condition_type = analyze_expression(node->condition, &local_semantic_table);
       if (condition_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
-        ctx->current_ctx = ctx->current_ctx->prev;
+        ctx->current_ctx = ctx_frame.prev;
         freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
         return FAIL;
       }
@@ -2528,7 +2529,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
         printf("semantic error: condition type must be numeric, but returned: %s\n",
           typekind_type_name(condition_type));
         node->type_kind = TYPE_ERROR;
-        ctx->current_ctx = ctx->current_ctx->prev;
+        ctx->current_ctx = ctx_frame.prev;
         freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
         return FAIL;
       }
@@ -2538,7 +2539,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
       enum TypeKind update_expr_type = analyze_expression(node->update, &local_semantic_table);
       if (update_expr_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
-        ctx->current_ctx = ctx->current_ctx->prev;
+        ctx->current_ctx = ctx_frame.prev;
         freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
         return FAIL;
       }
@@ -2547,7 +2548,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     if (node->body == NULL) {
       printf("semantic error: for loop missing body.\n");
       node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
+      ctx->current_ctx = ctx_frame.prev;
       freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
       return FAIL;
     }
@@ -2555,13 +2556,13 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     int ret = analyze_statement(node->body, &local_semantic_table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
-      ctx->current_ctx = ctx->current_ctx->prev;
+      ctx->current_ctx = ctx_frame.prev;
       freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
       return FAIL;
     }
 
     // pop the parent ctx information from the ctx before returning
-    ctx->current_ctx = ctx->current_ctx->prev;
+    ctx->current_ctx = ctx_frame.prev;
 
     freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
     node->type_kind = TYPE_UNUSED;
