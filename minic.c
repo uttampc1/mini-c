@@ -76,6 +76,7 @@ enum ASTNodeKind {
   AST_EMPTY,
   AST_RETURN,
   AST_FUNCTION,
+  AST_EXPRESSION_STATEMENT,
   AST_UNKNOWN
 };
 
@@ -169,6 +170,7 @@ struct ASTNode * createIfNode(struct ASTNode * expr, struct ASTNode * then_stmt,
 struct ASTNode * createWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
 struct ASTNode * createDoWhileNode(struct ASTNode * expr, struct ASTNode * body_stmt);
 struct ASTNode * createReturnNode(struct ASTNode * expr);
+struct ASTNode * createExpressionStatementNode(struct ASTNode * expr);
 struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
 struct ASTNode * createEmptyNode();
@@ -187,6 +189,7 @@ struct ASTNode * parse_statement(struct Parser *p);
 struct ASTNode * parse_expression(struct Parser *p);
 struct ASTNode * parse_primary(struct Parser *p);
 struct ASTNode * parse_term(struct Parser *p);
+struct ASTNode * parse_empty(struct Parser *p);
 
 int add_statement_to_program(struct ASTNode * program, struct ASTNode * statement);
 int add_statement_to_block(struct ASTNode * node, struct ASTNode * statement);
@@ -235,6 +238,8 @@ char *ast_node_type_name(enum ASTNodeKind kind) {
       return "EMPTY";
     case AST_RETURN:
       return "RETURN";
+    case AST_EXPRESSION_STATEMENT:
+      return "EXPRESSION_STATEMENT";
   }
 
   return "AST_UNKNOWN";
@@ -578,6 +583,18 @@ struct ASTNode * createReturnNode(struct ASTNode * expression) {
   return node;
 }
 
+struct ASTNode * createExpressionStatementNode(struct ASTNode * expression) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for expression stmt ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_EXPRESSION_STATEMENT;
+  node->expression = expression;
+  return node;
+}
+
 // Program node which holds a list of statements and count
 struct ASTNode * createProgramNode() {
   struct ASTNode * node = createASTNode();
@@ -696,6 +713,11 @@ void print_ast_tree(struct ASTNode *node, int depth) {
     if (t->expression != NULL) {
       printf("%*s %s \n", SPACES*(depth+1), " ", "EXPRESSION");
       print_ast_tree(t->expression, depth+2);
+    }
+  } else if (t->kind == AST_EXPRESSION_STATEMENT) {
+    printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
+    if (t->expression != NULL) {
+      print_ast_tree(t->expression, depth+1);
     }
   } else if (t->kind == AST_DECLARATION) {
     printf("%*s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), typekind_type_name(t->type_kind));
@@ -1341,7 +1363,7 @@ void expect_token(struct Parser *p, enum TokenKind type) {
     advance_token(p);
   } else {
     p->has_error = 1;
-    printf("tokenizer error: expected %s token, found %s token instead\n", token_type_name(type), token_type_name(t.type));
+    printf("parse error: expected %s token, found %s token instead\n", token_type_name(type), token_type_name(t.type));
   }
   return;
 }
@@ -1675,6 +1697,28 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
       printf("runtime error: undefined identifier (%s)\n", node->identifier_name);
       return FAIL;
     }
+  } else if (node->kind == AST_ASSIGNMENT) {
+    char *identifier = node->left->identifier_name;
+    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
+    if (symbol == NULL) {
+      printf("runtime error: assignment targeted to undeclared identifier '%s'\n", identifier);
+      return FAIL;
+    }
+
+    struct Value out_value = {0};
+    int ret = eval_expression(node->right, table, &out_value);
+    if (ret == FAIL) {
+      return FAIL;
+    }
+
+    if (symbol->type == TYPE_FLOAT && out_value.type == TYPE_INT) {
+      out_value.type = symbol->type;
+      out_value.float_value = (double)out_value.int_value;
+      out_value.int_value = 0;
+    }
+
+    symbol->value = out_value;
+    return SUCCESS;
   } else {
     printf("runtime error: Invalid AST_NODE\n");
   }
@@ -1733,46 +1777,19 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       out_value.int_value = 0;
     }
 
-    printf("runtime-msg : declared %s with initial value", identifier);
+    //printf("runtime-msg : declared %s with initial value", identifier);
+    /*
     if (out_value.type == TYPE_INT) {
-      printf(" %d\n", out_value.int_value);
+      printf("%d\n", out_value.int_value);
     } else if (out_value.type == TYPE_FLOAT) {
-      printf(" %f\n", out_value.float_value);
+      printf("%f\n", out_value.float_value);
     } else {
       return EVAL_FAIL;
     }
+    */
 
     // commit to the runtime symbol map
     store_symbol(table, declared_variable_type, identifier, &out_value);
-    return EVAL_OK;
-  } else if (node->kind == AST_ASSIGNMENT) {
-    char *identifier = node->left->identifier_name;
-    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
-    if (symbol == NULL) {
-      printf("runtime error: assignment targeted to undeclared identifier '%s'\n", identifier);
-      return EVAL_FAIL;
-    }
-
-    struct Value out_value = {0};
-    int ret = eval_expression(node->right, table, &out_value);
-    if (ret == FAIL) {
-      return EVAL_FAIL;
-    }
-
-    if (is_assignment_compatible(symbol->type, out_value.type) == 0) {
-      printf("runtime error: assignment type mismatch for declared identifier %s\n", identifier);
-      printf("runtime error: expected %s but found %s type.\n",
-        typekind_type_name(symbol->type), typekind_type_name(out_value.type));
-      return EVAL_FAIL;
-    }
-
-    if (symbol->type == TYPE_FLOAT && out_value.type == TYPE_INT) {
-      out_value.type = symbol->type;
-      out_value.float_value = (double)out_value.int_value;
-      out_value.int_value = 0;
-    }
-
-    symbol->value = out_value;
     return EVAL_OK;
   } else if (node->kind == AST_BLOCK) {
     struct SymbolTable local_runtime_table;
@@ -1914,27 +1931,42 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       return EVAL_FAIL;
     }
 
-    // evaluate initialization - table should have updated value for the symbol
+    struct SymbolTable local_runtime_table;
+    initialize_symbol_table(&local_runtime_table, table);
+
+    // evaluate init in the for-local scope
     enum EvalResult eval_ret = EVAL_OK;
     if (node->init != NULL) {
-      eval_ret = eval_statement(node->init, table);
-      if (eval_ret == EVAL_FAIL) {
-        return EVAL_FAIL;
+      if (node->init->kind == AST_DECLARATION) {
+        eval_ret = eval_statement(node->init, &local_runtime_table);
+        if (eval_ret == EVAL_FAIL) {
+          freeSymbolTableContents(&local_runtime_table);
+          return EVAL_FAIL;
+        }
+      } else {
+        struct Value expr_value;
+        int ret = eval_expression(node->init, &local_runtime_table, &expr_value);
+        if (ret == FAIL) {
+          freeSymbolTableContents(&local_runtime_table);
+          return EVAL_FAIL;
+        }
       }
     }
 
     int ret;
     while(1) {
-      struct Value expr_value;
+      struct Value expr_value = {0};
 
       if (node->condition != NULL) {
-        ret = eval_expression(node->condition, table, &expr_value);
+        ret = eval_expression(node->condition, &local_runtime_table, &expr_value);
         if (ret == FAIL) {
+          freeSymbolTableContents(&local_runtime_table);
           return EVAL_FAIL;
         }
 
         if (expr_value.type != TYPE_INT && expr_value.type != TYPE_FLOAT) {
           printf("runtime error: condition type must be numeric\n");
+          freeSymbolTableContents(&local_runtime_table);
           return EVAL_FAIL;
         }
 
@@ -1944,8 +1976,9 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
         }
       }
 
-      eval_ret = eval_statement(node->body, table);
+      eval_ret = eval_statement(node->body, &local_runtime_table);
       if (eval_ret == EVAL_FAIL) {
+        freeSymbolTableContents(&local_runtime_table);
         return EVAL_FAIL;
       } else if (eval_ret == EVAL_BREAK) {
         break;
@@ -1953,13 +1986,15 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
 
       // EVAL_OK or EVAL_CONTINUE
       if (node->update != NULL) {
-        eval_ret = eval_statement(node->update, table);
-        if (eval_ret == EVAL_FAIL) {
+        ret = eval_expression(node->update, &local_runtime_table, &expr_value);
+        if (ret == FAIL) {
+          freeSymbolTableContents(&local_runtime_table);
           return EVAL_FAIL;
         }
       }
     }
 
+    freeSymbolTableContents(&local_runtime_table);
     return EVAL_OK;
   } else if (node->kind == AST_BREAK) {
     return EVAL_BREAK;
@@ -1982,6 +2017,19 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     } else if (out_value.type == TYPE_FLOAT) {
       printf("%f\n", out_value.float_value);
     }
+    return EVAL_OK;
+  } else if (node->kind == AST_EXPRESSION_STATEMENT) {
+    if (node->expression == NULL) {
+      printf("runtime error: missing expression\n");
+      return EVAL_FAIL;
+    }
+
+    struct Value out_value;
+    int ret = eval_expression(node->expression, table, &out_value);
+    if (ret == FAIL) {
+      return EVAL_FAIL;
+    }
+
     return EVAL_OK;
   }
 
@@ -2020,6 +2068,52 @@ enum TypeKind analyze_expression(struct ASTNode *node, struct SymbolTable *table
       return TYPE_ERROR;
     }
 
+    return node->type_kind;
+  } else if (node->kind == AST_ASSIGNMENT) {
+
+    if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
+      printf("semantic error: left side of an assignment expression must be an identifier\n");
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
+
+    char *identifier = node->left->identifier_name;
+    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
+    if (symbol == NULL) {
+      printf("semantic error: assignment to undeclared identifier %s\n", identifier);
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
+
+    if (is_supported_type(symbol->type) == 0) {
+      printf("semantic error: unsupported type: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
+
+    node->left->type_kind = symbol->type;
+
+    if (node->right == NULL) {
+      printf("semantic error: missing assignment value for identifier %s\n", identifier);
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
+
+    enum TypeKind expression_type = analyze_expression(node->right, table);
+    if (expression_type == TYPE_ERROR) {
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
+
+    if (is_assignment_compatible(symbol->type, expression_type) == 0) {
+      printf("semantic error: assignment type mismatch for identifier %s\n", identifier);
+      printf("semantic error: expected %s but found %s type.\n",
+        typekind_type_name(symbol->type), typekind_type_name(expression_type));
+      node->type_kind = TYPE_ERROR;
+      return TYPE_ERROR;
+    }
+
+    node->type_kind = symbol->type;
     return node->type_kind;
   } else if (node->kind == AST_UNARY) {
     if (node->left == NULL) {
@@ -2232,51 +2326,18 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     store_symbol(table, declared_variable_type, identifier, &value);
     node->type_kind = declared_variable_type;
     return SUCCESS;
-  } else if (node->kind == AST_ASSIGNMENT) {
+  } else if (node->kind == AST_EXPRESSION_STATEMENT) {
 
-    if (node->left == NULL || node->left->kind != AST_IDENTIFIER) {
-      printf("semantic error: left side of an assignment statement must be an identifier\n");
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
+    enum TypeKind expression_type = TYPE_UNUSED;
+    if (node->expression) {
+      expression_type = analyze_expression(node->expression, table);
+      if (expression_type == TYPE_ERROR) {
+        node->type_kind = TYPE_ERROR;
+        return FAIL;
+      }
     }
 
-    char *identifier = node->left->identifier_name;
-    struct Symbol *symbol = lookup_symbol_visible(table, identifier);
-    if (symbol == NULL) {
-      printf("semantic error: assignment to undeclared identifier %s\n", identifier);
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    if (is_supported_type(symbol->type) == 0) {
-      printf("semantic error: unsupported type: %s for identifier: %s.\n", typekind_type_name(symbol->type), identifier);
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    node->left->type_kind = symbol->type;
-
-    if (node->right == NULL) {
-      printf("semantic error: missing assignment value for identifier %s\n", identifier);
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    enum TypeKind expression_type = analyze_expression(node->right, table);
-    if (expression_type == TYPE_ERROR) {
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    if (is_assignment_compatible(symbol->type, expression_type) == 0) {
-      printf("semantic error: assignment type mismatch for identifier %s\n", identifier);
-      printf("semantic error: expected %s but found %s type.\n",
-        typekind_type_name(symbol->type), typekind_type_name(expression_type));
-      node->type_kind = TYPE_ERROR;
-      return FAIL;
-    }
-
-    node->type_kind = symbol->type;
+    node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_BLOCK) {
     struct SymbolTable local_semantic_table;
@@ -2430,22 +2491,35 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
     ctx_frame.prev = ctx->current_ctx;
     ctx->current_ctx = &ctx_frame;
 
-    // if exists, handle init statement
+    struct SymbolTable local_semantic_table;
+    initialize_symbol_table(&local_semantic_table, table);
+
     if (node->init != NULL) {
-      int ret = analyze_statement(node->init, table, ctx);
-      if (ret == FAIL) {
-        node->type_kind = TYPE_ERROR;
-        ctx->current_ctx = ctx->current_ctx->prev;
-        return FAIL;
+      if (node->init->kind == AST_DECLARATION) {
+        int ret = analyze_statement(node->init, &local_semantic_table, ctx);
+        if (ret == FAIL) {
+          node->type_kind = TYPE_ERROR;
+          ctx->current_ctx = ctx->current_ctx->prev;
+          freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
+          return FAIL;
+        }
+      } else {
+        enum TypeKind init_expr_type = analyze_expression(node->init, &local_semantic_table);
+        if (init_expr_type == TYPE_ERROR) {
+          node->type_kind = TYPE_ERROR;
+          ctx->current_ctx = ctx->current_ctx->prev;
+          freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
+          return FAIL;
+        }
       }
     }
 
-    // if exists, handle condition like an expression
     if (node->condition != NULL) {
-      enum TypeKind condition_type = analyze_expression(node->condition, table);
+      enum TypeKind condition_type = analyze_expression(node->condition, &local_semantic_table);
       if (condition_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
         ctx->current_ctx = ctx->current_ctx->prev;
+        freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
         return FAIL;
       }
 
@@ -2454,38 +2528,41 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Se
           typekind_type_name(condition_type));
         node->type_kind = TYPE_ERROR;
         ctx->current_ctx = ctx->current_ctx->prev;
+        freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
         return FAIL;
       }
     }
 
-    // if exists handle update like statement
     if (node->update != NULL) {
-      int ret = analyze_statement(node->update, table, ctx);
-      if (ret == FAIL) {
+      enum TypeKind update_expr_type = analyze_expression(node->update, &local_semantic_table);
+      if (update_expr_type == TYPE_ERROR) {
         node->type_kind = TYPE_ERROR;
         ctx->current_ctx = ctx->current_ctx->prev;
+        freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
         return FAIL;
       }
     }
 
-    // Handle body like an block
     if (node->body == NULL) {
       printf("semantic error: for loop missing body.\n");
       node->type_kind = TYPE_ERROR;
       ctx->current_ctx = ctx->current_ctx->prev;
+      freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
       return FAIL;
     }
 
-    int ret = analyze_statement(node->body, table, ctx);
+    int ret = analyze_statement(node->body, &local_semantic_table, ctx);
     if (ret == FAIL) {
       node->type_kind = TYPE_ERROR;
       ctx->current_ctx = ctx->current_ctx->prev;
+      freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
       return FAIL;
     }
 
     // pop the parent ctx information from the ctx before returning
     ctx->current_ctx = ctx->current_ctx->prev;
 
+    freeSymbolTableContents(&local_semantic_table); // We do not need this anymore
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_BREAK) {
@@ -3035,18 +3112,76 @@ struct ASTNode * parse_logical_or(struct Parser *p) {
   return left;
 }
 
-// expression -> parse_logical_or
+// assignment_core -> IDENTIFIER "=" expression
+struct ASTNode * parse_assignment_core(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * left = parse_identifier(p);
+  if ( left == NULL ) {
+    p->has_error = 1;
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_EQUAL);
+  if (p->has_error) {
+    printf("parse error: expected '=' after variable identifier in assignment\n");
+    freeASTNode(left);
+    return NULL;
+  }
+
+  struct ASTNode * right = parse_expression(p);
+  if (right == NULL ) {
+    if (p->has_error == 0) {
+      p->has_error = 1;
+      printf("parse error: missing expression on right-hand side of assignment\n");
+    } else {
+      printf("parse error: invalid expression inside assignment\n");
+    }
+    freeASTNode(left);
+    return NULL;
+  }
+
+  struct ASTNode * node = createAssignmentNode(left, right);
+  if (node == NULL) {
+    freeASTNode(left);
+    freeASTNode(right);
+    p->has_error = 1;
+  }
+
+  return node;
+}
+
+// assignment -> IDENTIFIER "=" assignment
+//            |  logical_or
+struct ASTNode * parse_assignment(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * node = NULL;
+  if (is_current_token(p, TOKEN_IDENTIFIER) && (is_next_token(p, TOKEN_EQUAL))) {
+    node = parse_assignment_core(p);
+  } else {
+    node = parse_logical_or(p);
+  }
+
+  return node;
+}
+
+// expression -> assignment
 struct ASTNode * parse_expression(struct Parser *p) {
   if (p->has_error) {
     return NULL;
   }
 
-  struct ASTNode * node = parse_logical_or(p);
+  struct ASTNode * node = parse_assignment(p);
 
   return node;
 }
 
-// continue -> continue
+// continue -> continue ";"
 struct ASTNode * parse_continue_stmt(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -3071,7 +3206,7 @@ struct ASTNode * parse_continue_stmt(struct Parser *p) {
   return node;
 }
 
-// break -> break
+// break -> break ";"
 struct ASTNode * parse_break_stmt(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -3096,69 +3231,7 @@ struct ASTNode * parse_break_stmt(struct Parser *p) {
   return node;
 }
 
-// assignment -> IDENTIFIER EQUAL expression
-struct ASTNode * parse_assignment_core(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  struct ASTNode * left = parse_identifier(p);
-  if ( left == NULL ) {
-    p->has_error = 1;
-    return NULL;
-  }
-
-  expect_token(p, TOKEN_EQUAL);
-  if (p->has_error) {
-    printf("parse error: expected '=' after variable identifier in assignment statement\n");
-    freeASTNode(left);
-    return NULL;
-  }
-
-  struct ASTNode * right = parse_expression(p);
-  if (right == NULL ) {
-    if (p->has_error == 0) {
-      p->has_error = 1;
-      printf("parse error: missing expression on right-hand side of assignment statement\n");
-    } else {
-      printf("parse error: invalid expression inside assignment statement\n");
-    }
-    freeASTNode(left);
-    return NULL;
-  }
-
-  struct ASTNode * node = createAssignmentNode(left, right);
-  if (node == NULL) {
-    freeASTNode(left);
-    freeASTNode(right);
-    p->has_error = 1;
-  }
-
-  return node;
-}
-
-// assignment -> IDENTIFIER EQUAL expression SEMICOLON
-struct ASTNode * parse_assignment(struct Parser *p) {
-  if (p->has_error) {
-    return NULL;
-  }
-
-  struct ASTNode * node = parse_assignment_core(p);
-  if (node == NULL) {
-    return NULL;
-  }
-
-  expect_token(p, TOKEN_SEMICOLON);
-  if (p->has_error) {
-    printf("parse error: expected ';' to terminate assignment statement\n");
-    freeASTNode(node);
-    return NULL;
-  }
-
- return node;
-}
-
-// print_statement -> PRINT LPAREN expression RPAREN SEMICON
+// print_statement -> PRINT LPAREN expression RPAREN SEMICOLON
 struct ASTNode * parse_print_stmt(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -3270,6 +3343,69 @@ struct ASTNode * parse_block(struct Parser *p) {
   return block;
 }
 
+// for_init -> empty | expression | declaration
+struct ASTNode * parse_for_init(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  if (is_current_token(p, TOKEN_SEMICOLON)) {
+    return NULL;
+  }
+
+  struct ASTNode * init_node = NULL;
+
+  // check if its a declaration
+  if (is_current_token(p, TOKEN_INT) || is_current_token(p, TOKEN_FLOAT)) {
+    enum TypeKind dataType = parse_datatype(p);
+    if (dataType == TYPE_ERROR || p->has_error) {
+      return NULL;
+    }
+
+    // get identifier
+    struct ASTNode * identifier = parse_identifier(p);
+    if ( identifier == NULL ) {
+      return NULL;
+    }
+
+    // get expression int x=0;
+    if (is_current_token(p, TOKEN_EQUAL)) {
+      struct ASTNode * rightValue = NULL;
+      expect_token(p, TOKEN_EQUAL);
+      rightValue = parse_expression(p);
+      if (rightValue == NULL) {
+        p->has_error = 1;
+        return NULL;
+      }
+
+      // create declaratio node
+      init_node = createDeclarationNode(dataType, identifier, rightValue);
+      if (init_node == NULL) {
+        p->has_error = 1;
+        freeASTNode(identifier);
+        freeASTNode(rightValue);
+      }
+      return init_node;
+    }
+
+    // int x; just create a declaration node with initializer = NULL
+    init_node = createDeclarationNode(dataType, identifier, NULL);
+    if (init_node == NULL) {
+      p->has_error = 1;
+      freeASTNode(identifier);
+    }
+    return init_node;
+  } 
+
+  init_node = parse_expression(p);
+  if (init_node == NULL) {
+    p->has_error = 1;
+    return NULL;
+  }
+
+  return init_node;
+}
+
 // for_statement -> for (init ; expression ; update) statement
 struct ASTNode * parse_for_stmt(struct Parser *p) {
   if (p->has_error) {
@@ -3278,7 +3414,7 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
 
   // consume FOR token
   expect_token(p, TOKEN_FOR);
-  if ( p->has_error ) {
+  if (p->has_error) {
     return NULL;
   }
 
@@ -3290,18 +3426,9 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
   }
 
   // get the init part
-  struct ASTNode * init_node = NULL;
-  if (!is_current_token(p, TOKEN_SEMICOLON)) {
-    init_node = parse_assignment_core(p);
-    if (init_node == NULL) {
-      if (p->has_error == 0) {
-        printf("parse error: missing initialization in for_statement\n");
-        p->has_error = 1;
-      } else {
-        printf("parse error: invalid initialization in for_statement\n");
-      }
-      return NULL;
-    }
+  struct ASTNode * init_node = parse_for_init(p);
+  if (p->has_error) {
+    return NULL;
   }
 
   expect_token(p, TOKEN_SEMICOLON); // This consumes ';', error otherwise
@@ -3315,13 +3442,8 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
   struct ASTNode * condition = NULL;
   if (!is_current_token(p, TOKEN_SEMICOLON)) {
     condition = parse_expression(p);
-    if (condition == NULL) {
-      if (p->has_error == 0) {
-        printf("parse error: missing condition in for_statement\n");
-        p->has_error = 1;
-      } else {
-        printf("parse error: invalid condition inside for_statement condition.\n");
-      }
+    if (p->has_error) {
+      printf("parse error: invalid condition expression inside for_statement.\n");
       freeASTNode(init_node);
       return NULL;
     }
@@ -3338,14 +3460,9 @@ struct ASTNode * parse_for_stmt(struct Parser *p) {
   // get the update expression
   struct ASTNode * update_node = NULL;
   if (!is_current_token(p, TOKEN_RPAREN)) {
-    update_node = parse_assignment_core(p);
-    if (update_node == NULL) {
-      if (p->has_error == 0) {
-        printf("parse error: missing update expression in for_statement\n");
-        p->has_error = 1;
-      } else {
-        printf("parse error: invalid update expression inside for_statement.\n");
-      }
+    update_node = parse_expression(p);
+    if (p->has_error) {
+      printf("parse error: invalid update expression inside for_statement.\n");
       freeASTNode(init_node);
       freeASTNode(condition);
       return NULL;
@@ -3767,7 +3884,35 @@ struct ASTNode * parse_empty(struct Parser *p) {
   return node;
 }
 
-// statement -> empty | declaration | print | block | if | while | break | continue | for_stmt | assignment
+// expression_stmt -> expression ;
+struct ASTNode * parse_expression_stmt(struct Parser *p) {
+  if (p->has_error) {
+    return NULL;
+  }
+
+  struct ASTNode * expr = parse_expression(p);
+  if (expr == NULL) {
+    return NULL;
+  }
+
+  expect_token(p, TOKEN_SEMICOLON);
+  if (p->has_error) {
+    printf("parser error: missing ';' to end expression\n");
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  struct ASTNode * node = createExpressionStatementNode(expr);
+  if (node == NULL) {
+    p->has_error = 1;
+    freeASTNode(expr);
+    return NULL;
+  }
+
+  return node;
+}
+
+// statement -> empty | declaration | print | block | if | while | break | continue | for_stmt | return | expression_stmt
 struct ASTNode * parse_statement(struct Parser *p) {
   if (p->has_error) {
     return NULL;
@@ -3796,16 +3941,8 @@ struct ASTNode * parse_statement(struct Parser *p) {
     node = parse_continue_stmt(p);
   } else if (is_current_token(p, TOKEN_RETURN)) {
     node = parse_return_stmt(p);
-  } else if (is_current_token(p, TOKEN_IDENTIFIER)) {
-    if (((p->pos + 1) < p->token_count) && is_next_token(p, TOKEN_EQUAL)) {
-      node = parse_assignment(p);
-    } else if (p->has_error == 0) {
-      struct Token bad_token = current_token(p);
-      printf("parse error: found unexpected symbol '%.*s'\n", bad_token.length, bad_token.start);
-      p->has_error = 1;
-      advance_token(p);
-      return NULL;
-    }
+  } else {
+    node = parse_expression_stmt(p);
   }
 
   return node;
@@ -4031,7 +4168,7 @@ int main(void) {
   printf("Global symbol table after semantic phase\n");
   //print_symbol_table(&semantic_table);
   printf("\nPrint AST Tree after SEMANTIC CHECK PHASE:\n ");
-  //print_ast_tree(program, 0);
+  print_ast_tree(program, 0);
   freeSymbolTableContents(&semantic_table);
   printf("--> SEMANTIC CHECK PHASE: PASS\n");
 
