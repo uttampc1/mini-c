@@ -1705,19 +1705,20 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
       return FAIL;
     }
 
-    struct Value out_value = {0};
-    int ret = eval_expression(node->right, table, &out_value);
+    struct Value expr_value = {0};
+    int ret = eval_expression(node->right, table, &expr_value);
     if (ret == FAIL) {
       return FAIL;
     }
 
-    if (symbol->type == TYPE_FLOAT && out_value.type == TYPE_INT) {
-      out_value.type = symbol->type;
-      out_value.float_value = (double)out_value.int_value;
-      out_value.int_value = 0;
-    }
+    if (symbol->type == TYPE_FLOAT && expr_value.type == TYPE_INT) {
+      expr_value.type = symbol->type;
+      expr_value.float_value = (double)expr_value.int_value;
+      expr_value.int_value = 0;
+    } 
 
-    symbol->value = out_value;
+    symbol->value = expr_value;
+    *out_value = expr_value;
     return SUCCESS;
   } else {
     printf("runtime error: Invalid AST_NODE\n");
