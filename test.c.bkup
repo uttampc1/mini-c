@@ -1,3 +1,4 @@
+int f() {
 print(0 && 5);
 print(0 || 0);
 print(1 && 2);
@@ -191,7 +192,8 @@ int x = 0;
 while (x) ; 
 print(1);
 }
-{int x = 0;
+{
+int x = 0;
 for (; x < 3; x = x + 1) ;
 print(x);
 }
@@ -218,4 +220,13 @@ do {
   print(x);
   continue;
 } while (x < 3);
+}
+return 0;
+}
+
+float x;
+int f0(){
+  int x=3;
+  float f=4.0;
+  return 1;
 }

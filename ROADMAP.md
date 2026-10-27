@@ -232,15 +232,15 @@ Goal: move from statement scripts to real programs.
 
 #### Features
 - [ ] function declarations
-- [ ] function definitions
+- [x] function definitions
 - [ ] parameter lists
 - [ ] function calls
 - [ ] argument checking
 - [ ] return statements
 - [ ] return type checking
 - [ ] parameter/local scopes
-- [ ] function symbol table
-- [ ] distinguish variables from functions in symbol handling
+- [x] function symbol table
+- [x] distinguish variables from functions in symbol handling
 
 ---
 
