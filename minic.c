@@ -132,10 +132,11 @@ struct SymbolTable {
 };
 
 struct FunctionSymbol {
-  char *name;
+  char name[BUFFER_SIZE];
   enum TypeKind return_type;
   int param_count;
   enum TypeKind param_types[MAX_PARAMS];
+  struct ASTNode * function_node;
 };
 
 struct FunctionSymbolTable {
@@ -212,12 +213,15 @@ struct ASTNode * createProgramNode();
 struct ASTNode * createEmptyNode();
 void freeASTNode(struct ASTNode *);
 
-int analyze_declaration(struct ASTNode *node, struct SymbolTable *sym_table, struct FunctionSymbolTable *func_sym_table, struct SemanticContext *ctx, int global_scope);
 enum TypeKind analyze_expression(struct ASTNode *node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table);
+int analyze_declaration(struct ASTNode *node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct SemanticContext *ctx, int global_scope);
 int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct SemanticContext *ctx);
-int analyze_program(struct ASTNode *node, struct SymbolTable *sym_table, struct FunctionSymbolTable *func_table, struct SemanticContext *ctx);
+int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct SemanticContext *ctx);
 
-enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *sym_table);
+int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *out_value);
+enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *out_value);
+int eval_program(struct ASTNode * node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table); 
+void initialize_symbol_table(struct SymbolTable *table, struct SymbolTable *parent);
 
 struct Symbol  * lookup_symbol_current(struct SymbolTable *sym_table, const char *name); // current scope search
 struct Symbol  * lookup_symbol_visible(struct SymbolTable *sym_table, const char *name); // globalc scope search
@@ -742,9 +746,8 @@ void freeFunctionSymbolTableContents(struct FunctionSymbolTable *table) {
   }
 
   for (int i=0; i < table->count; i++) {
-    if (table->function_symbols[i].name != NULL) {
-      free(table->function_symbols[i].name);
-      table->function_symbols[i].name = NULL;
+    for (int c=0; c < BUFFER_SIZE; c++) {
+      table->function_symbols[i].name[c] = '\0';
     }
   }
 
@@ -866,7 +869,7 @@ void print_ast_tree(struct ASTNode *node, int depth) {
     if (t->argument_count > 0) {
       printf("%*s %s (%d) \n", SPACES*(depth+1), " ", "ARGUMENTS", t->argument_count);
       for (int i=0; i < t->argument_count; i++) {
-         printf("%*s %s %s %s\n", SPACES*(depth+2), " ", ast_node_type_name(t->arguments[i]->kind), t->arguments[i]->identifier_name, typekind_type_name(t->arguments[i]->type_kind));
+        print_ast_tree(t->arguments[i], depth+2);
       }
     }
   } else if (t->kind == AST_RETURN) {
@@ -986,6 +989,57 @@ void print_debug_output(struct ASTNode * program, struct SymbolTable *sym_table,
   print_function_symbol_table(func_table);
   printf("*********************** DEBUG output ************** \n\n");
   return;
+}
+
+int invoke_function(struct FunctionSymbol *func,  struct Value *arg_values, int argument_count, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *return_value) {
+  if (func == NULL) {
+    printf("runtime error: function symbol is missing\n");
+    return FAIL;
+  }
+
+  if (argument_count < func->param_count) {
+    printf("runtime error: calling with too few arguments to function '%s'\n", func->name);
+    return FAIL;
+  } else if (argument_count > func->param_count) {
+    printf("runtime error: calling with too many arguments to function '%s'\n", func->name);
+    return FAIL;
+  }
+
+  enum TypeKind return_type = func->return_type;
+  int param_count = func->param_count;
+  enum TypeKind *param_types = func->param_types;
+  struct ASTNode *function_node = func->function_node;
+
+  if (function_node == NULL || function_node->body == NULL) {
+    printf("runtime error: '%s' function AST Node/body is NULL\n", func->name);
+    return FAIL;
+  }
+
+  struct ASTNode *function_body = function_node->body;
+  
+  struct SymbolTable local_runtime_table;
+  initialize_symbol_table(&local_runtime_table, table);
+
+  // NOTE: we are not yet binding the parameters and arguments from the caller of this function
+
+  enum EvalResult eval_ret = eval_statement(function_body, &local_runtime_table, func_sym_table, return_value);
+  freeSymbolTableContents(&local_runtime_table);
+  if (eval_ret == EVAL_RETURN) {
+    return SUCCESS;
+  } else if (eval_ret == EVAL_BREAK) {
+    printf("runtime/internal error: function body produced unexpected BREAK\n");
+    return FAIL;
+  } else if (eval_ret == EVAL_CONTINUE) {
+    printf("runtime/internal error: function body produced unexpected CONTINUE\n");
+    return FAIL;
+  } else if (eval_ret == EVAL_FAIL) {
+    return FAIL;
+  } else if (eval_ret == EVAL_OK) {
+    printf("runtime/internal error/warning: function finished without return\n");
+    return FAIL;
+  }
+
+  return FAIL;
 }
 
 int statement_guarantees_return(struct ASTNode * node) {
@@ -1168,7 +1222,9 @@ void initialize_function_symbol_table(struct FunctionSymbolTable *table) {
   }
 
   for (int i=0; i < MAX_SYMBOLS; i++) {
-    table->function_symbols[i].name = NULL;
+    for (int c=0; c < BUFFER_SIZE; c++) {
+      table->function_symbols[i].name[c] = '\0';
+    }
   }
 
   table->count = 0;
@@ -1195,7 +1251,7 @@ struct FunctionSymbol * lookup_function_symbol(struct FunctionSymbolTable *table
   return NULL;
 }
 
-int store_function_symbol(struct FunctionSymbolTable *table, enum TypeKind return_type, const char *name, int param_count, enum TypeKind *param_types) {
+int store_function_symbol(struct FunctionSymbolTable *table, enum TypeKind return_type, const char *name, int param_count, enum TypeKind *param_types, struct ASTNode * function_node) {
   if (table == NULL) {
     printf("semantic error: function symbol table is not allocated\n");
     return FAIL;
@@ -1221,27 +1277,22 @@ int store_function_symbol(struct FunctionSymbolTable *table, enum TypeKind retur
   }
 
   size_t symbol_len = strlen(name);
-  char *new_symbol_name = (char *)malloc(symbol_len+1);
-  if (new_symbol_name == NULL) {
-    printf("semantic error: couldn't allocate memory for new function '%s' entry\n", name);
+  if (symbol_len >= BUFFER_SIZE) {
+    printf("semantic error: symbol is too long, memory exception.\n");
     return FAIL;
   }
 
-  for (int i=0; i < symbol_len+1; i++) {
-    new_symbol_name[i] = '\0';
-  }
-
-  strcpy(new_symbol_name, name);
-
   struct FunctionSymbol new_symbol = {0};
+
+  strncpy(new_symbol.name, name, symbol_len);
   new_symbol.return_type = return_type;
-  new_symbol.name = new_symbol_name;
   new_symbol.param_count = param_count;
-  if ((param_count > 0) && (param_count < MAX_PARAMS-1) && (param_types != NULL)) {
+  if ((param_count > 0) && (param_count < MAX_PARAMS) && (param_types != NULL)) {
     for (int i=0; i < param_count; i++) {
       new_symbol.param_types[i] = param_types[i];
     }
   }
+  new_symbol.function_node = function_node;
 
   table->function_symbols[table->count] = new_symbol;
   table->count++;
@@ -1705,7 +1756,7 @@ void expect_token(struct Parser *p, enum TokenKind type) {
 }
 
 // Evaluator
-int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Value *out_value) {
+int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *out_value) {
 
   if (node == NULL) {
     return FAIL;
@@ -1725,7 +1776,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
     return SUCCESS;
   } else if (node->kind == AST_UNARY) {
     struct Value result;
-    int ret = eval_expression(node->left, table, &result);
+    int ret = eval_expression(node->left, table, func_sym_table, &result);
     if (ret == FAIL) {
       return FAIL;
     }
@@ -1777,12 +1828,12 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
     return SUCCESS;
   } else if (node->kind == AST_BINARY) {
     struct Value leftNum;
-    int ret = eval_expression(node->left, table, &leftNum);
+    int ret = eval_expression(node->left, table, func_sym_table, &leftNum);
     if (ret == FAIL) {
       return FAIL;
     }
     struct Value rightNum;
-    ret = eval_expression(node->right, table, &rightNum);
+    ret = eval_expression(node->right, table, func_sym_table, &rightNum);
     if (ret == FAIL) {
       return FAIL;
     }
@@ -2042,7 +2093,7 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
     }
 
     struct Value expr_value = {0};
-    int ret = eval_expression(node->right, table, &expr_value);
+    int ret = eval_expression(node->right, table, func_sym_table, &expr_value);
     if (ret == FAIL) {
       return FAIL;
     }
@@ -2056,14 +2107,37 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Val
     symbol->value = expr_value;
     *out_value = expr_value;
     return SUCCESS;
-  } else {
-    printf("runtime error: Invalid AST_NODE\n");
+  } else if (node->kind == AST_CALL) {
+    struct FunctionSymbol *func_symbol = lookup_function_symbol(func_sym_table, node->function_name);
+    if (func_symbol == NULL) {
+      printf("runtime error: function '%s' is undefined\n", node->function_name);
+      return FAIL;
+    }
+
+    struct Value arg_values[MAX_PARAMS];
+    if (node->argument_count > 0) {
+      for (int i=0; i < node->argument_count; i++) {
+        struct Value expr_value = {0};
+        int ret = eval_expression(node->arguments[i], table, func_sym_table, &expr_value);
+        if (ret == FAIL) {
+          return FAIL;
+        }
+        arg_values[i] = expr_value;
+      }
+
+      // now check against function parameter types, if mis-match then error out
+    }
+
+    int ret = invoke_function(func_symbol, arg_values, node->argument_count, table, func_sym_table, out_value);
+    return ret;
+
   }
 
+  printf("runtime error: invalid expression AST_NODE: %s\n", ast_node_type_name(node->kind));
   return FAIL;
 }
 
-enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table) {
+enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *return_value) {
   struct ASTNode * node = root;
   if (node == NULL) {
     return EVAL_FAIL;
@@ -2095,7 +2169,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     }
 
     if (node->right) {
-      int ret = eval_expression(node->right, table, &out_value);
+      int ret = eval_expression(node->right, table, func_sym_table, &out_value);
       if (ret == FAIL) {
        return EVAL_FAIL;
       }
@@ -2108,14 +2182,15 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       return EVAL_FAIL;
     }
 
+    out_value.type = declared_type;
     if (declared_type == TYPE_FLOAT && out_value.type == TYPE_INT) {
-      out_value.type = declared_type;
       out_value.float_value = (double)out_value.int_value;
       out_value.int_value = 0;
+    } else {
     }
 
-    //printf("runtime-msg : declared %s with initial value", identifier);
     /*
+    printf("runtime-msg : declared %s with initial value: ", identifier);
     if (out_value.type == TYPE_INT) {
       printf("%d\n", out_value.int_value);
     } else if (out_value.type == TYPE_FLOAT) {
@@ -2124,6 +2199,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       return EVAL_FAIL;
     }
     */
+    
 
     // commit to the runtime symbol map
     store_symbol(table, declared_type, identifier, &out_value);
@@ -2138,7 +2214,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
         return EVAL_FAIL;
       }
 
-      enum EvalResult eval_ret = eval_statement(node->statements[c], &local_runtime_table);
+      enum EvalResult eval_ret = eval_statement(node->statements[c], &local_runtime_table, func_sym_table, return_value);
       if (eval_ret == EVAL_FAIL) {
         freeSymbolTableContents(&local_runtime_table);
         return EVAL_FAIL;
@@ -2148,19 +2224,22 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       } else if (eval_ret == EVAL_CONTINUE) {
         freeSymbolTableContents(&local_runtime_table);
         return EVAL_CONTINUE;
+      } else if (eval_ret == EVAL_RETURN) {
+        freeSymbolTableContents(&local_runtime_table);
+        return EVAL_RETURN;
       }
     }
 
     print_symbol_table(&local_runtime_table);
-    freeSymbolTableContents(&local_runtime_table); // CLEANUP on successful block exiy
+    freeSymbolTableContents(&local_runtime_table); // CLEANUP on successful block exit
     return EVAL_OK;
   } else if (node->kind == AST_IF) {
     if (node->condition == NULL) {
       return EVAL_FAIL;
     }
 
-    struct Value expr_value;
-    int ret = eval_expression(node->condition, table, &expr_value);
+    struct Value expr_value = {0};
+    int ret = eval_expression(node->condition, table, func_sym_table, &expr_value);
     if (ret == FAIL) {
       return EVAL_FAIL;
     }
@@ -2171,13 +2250,13 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
 
     if ((expr_value.type == TYPE_INT && expr_value.int_value != 0)
       || (expr_value.type == TYPE_FLOAT && expr_value.float_value != 0.0)) {
-      enum EvalResult eval_ret = eval_statement(node->then_branch, table);
+      enum EvalResult eval_ret = eval_statement(node->then_branch, table, func_sym_table, return_value);
       if (eval_ret != EVAL_OK) {
         return eval_ret;
       }
     } else {
       if (node->else_branch) {
-        enum EvalResult eval_ret = eval_statement(node->else_branch, table);
+        enum EvalResult eval_ret = eval_statement(node->else_branch, table, func_sym_table, return_value);
         if (eval_ret != EVAL_OK) {
           return eval_ret;
         }
@@ -2194,14 +2273,9 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       return EVAL_FAIL;
     }
 
-    enum EvalResult eval_ret = eval_statement(node->body, table);
-    if (eval_ret == EVAL_FAIL) {
-      return EVAL_FAIL;
-    }
-
     while(1) {
-      struct Value expr_value;
-      int ret = eval_expression(node->condition, table, &expr_value);
+      struct Value expr_value = {0};
+      int ret = eval_expression(node->condition, table, func_sym_table, &expr_value);
       if (ret == FAIL) {
         return EVAL_FAIL;
       }
@@ -2216,13 +2290,15 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
         break;
       }
 
-      enum EvalResult eval_ret = eval_statement(node->body, table);
+      enum EvalResult eval_ret = eval_statement(node->body, table, func_sym_table, return_value);
       if (eval_ret == EVAL_FAIL) {
         return EVAL_FAIL;
       } else if (eval_ret == EVAL_BREAK) {
         break;
       } else if (eval_ret == EVAL_CONTINUE) {
         continue;
+      } else if (eval_ret == EVAL_RETURN) {
+        return EVAL_RETURN;
       }
     }
     return EVAL_OK;
@@ -2236,14 +2312,16 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     }
 
     while(1) {
-      enum EvalResult eval_ret = eval_statement(node->body, table);
+      enum EvalResult eval_ret = eval_statement(node->body, table, func_sym_table, return_value);
       if (eval_ret == EVAL_FAIL) {
         return EVAL_FAIL;
       } else if (eval_ret == EVAL_BREAK) {
         break;
+      } else if (eval_ret == EVAL_RETURN) {
+        return EVAL_RETURN;
       } else if (eval_ret == EVAL_CONTINUE || eval_ret == EVAL_OK) {
-        struct Value expr_value;
-        int ret = eval_expression(node->condition, table, &expr_value);
+        struct Value expr_value = {0};
+        int ret = eval_expression(node->condition, table, func_sym_table, &expr_value);
         if (ret == FAIL) {
           return EVAL_FAIL;
         }
@@ -2273,14 +2351,15 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     enum EvalResult eval_ret = EVAL_OK;
     if (node->init != NULL) {
       if (node->init->kind == AST_DECLARATION) {
-        eval_ret = eval_statement(node->init, &local_runtime_table);
-        if (eval_ret == EVAL_FAIL) {
+        struct Value out_value = {0};
+        eval_ret = eval_statement(node->init, &local_runtime_table, func_sym_table, &out_value);
+        if (eval_ret != EVAL_OK) {
           freeSymbolTableContents(&local_runtime_table);
           return EVAL_FAIL;
         }
       } else {
-        struct Value expr_value;
-        int ret = eval_expression(node->init, &local_runtime_table, &expr_value);
+        struct Value expr_value = {0};
+        int ret = eval_expression(node->init, &local_runtime_table, func_sym_table, &expr_value);
         if (ret == FAIL) {
           freeSymbolTableContents(&local_runtime_table);
           return EVAL_FAIL;
@@ -2291,9 +2370,8 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     int ret;
     while(1) {
       struct Value expr_value = {0};
-
       if (node->condition != NULL) {
-        ret = eval_expression(node->condition, &local_runtime_table, &expr_value);
+        ret = eval_expression(node->condition, &local_runtime_table, func_sym_table, &expr_value);
         if (ret == FAIL) {
           freeSymbolTableContents(&local_runtime_table);
           return EVAL_FAIL;
@@ -2311,17 +2389,20 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
         }
       }
 
-      eval_ret = eval_statement(node->body, &local_runtime_table);
+      eval_ret = eval_statement(node->body, &local_runtime_table, func_sym_table, return_value);
       if (eval_ret == EVAL_FAIL) {
         freeSymbolTableContents(&local_runtime_table);
         return EVAL_FAIL;
       } else if (eval_ret == EVAL_BREAK) {
         break;
+      } else if (eval_ret == EVAL_RETURN) {
+        freeSymbolTableContents(&local_runtime_table);
+        return EVAL_RETURN;
       }
 
       // EVAL_OK or EVAL_CONTINUE
       if (node->update != NULL) {
-        ret = eval_expression(node->update, &local_runtime_table, &expr_value);
+        ret = eval_expression(node->update, &local_runtime_table, func_sym_table, &expr_value);
         if (ret == FAIL) {
           freeSymbolTableContents(&local_runtime_table);
           return EVAL_FAIL;
@@ -2342,7 +2423,7 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
     }
 
     struct Value out_value;
-    int ret = eval_expression(node->left, table, &out_value);
+    int ret = eval_expression(node->left, table, func_sym_table, &out_value);
     if (ret == FAIL) {
       return EVAL_FAIL;
     }
@@ -2359,24 +2440,56 @@ enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table)
       return EVAL_FAIL;
     }
 
-    struct Value out_value;
-    int ret = eval_expression(node->expression, table, &out_value);
+    struct Value expr_value;
+    int ret = eval_expression(node->expression, table, func_sym_table, &expr_value);
     if (ret == FAIL) {
       return EVAL_FAIL;
     }
 
     return EVAL_OK;
-  } else if (node->kind == AST_FUNCTION) {
-    print_ast_tree(node, 0);
-    return EVAL_OK;
-  } else {
-    printf("runtime error: invalid expression node found: %s\n", typekind_type_name(node->kind));
+  } else if (node->kind == AST_RETURN) {
+    if (node->expression == NULL) {
+      printf("runtime error: missing expression\n");
+      return EVAL_FAIL;
+    }
+
+    int ret = eval_expression(node->expression, table, func_sym_table, return_value);
+    if (ret == FAIL) {
+      return EVAL_FAIL;
+    }
+
+    return EVAL_RETURN;
   }
 
+  printf("runtime error: invalid statement node found: %s\n", typekind_type_name(node->kind));
   return EVAL_FAIL;
 }
 
-int eval_program(struct ASTNode * node, struct SymbolTable *table) {
+int eval_global_item(struct ASTNode *node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table) {
+  if (node == NULL) {
+    return FAIL;
+  }
+
+  if (node->kind == AST_EMPTY) {
+    node->type_kind = TYPE_UNUSED;
+    return SUCCESS;
+  } else if (node->kind == AST_DECLARATION) {
+    struct Value out_value = {0};
+    enum EvalResult eval_ret = eval_statement(node, table, func_sym_table, &out_value);
+    if (eval_ret != EVAL_OK) {
+      return FAIL;
+    } 
+    print_symbol_table(table);
+    return SUCCESS;
+  } else if (node->kind == AST_FUNCTION) {
+    // sematically it has been verified but check against function symbol table if it exists: TODO needed?
+    return SUCCESS;
+  }
+
+  return FAIL;
+}
+
+int eval_program(struct ASTNode * node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table) {
   if (node == NULL) {
     return FAIL;
   }
@@ -2386,12 +2499,28 @@ int eval_program(struct ASTNode * node, struct SymbolTable *table) {
   }
 
   for (int c=0; c < node->statement_count; c++) {
-    enum EvalResult eval_ret = eval_statement(node->statements[c], table);
-    if(eval_ret != EVAL_OK) {
+    struct Value out_value;
+    int ret = eval_global_item(node->statements[c], table, func_sym_table);
+    if(ret == FAIL) {
       return FAIL;
     }
   }
-  return SUCCESS;
+
+  // Find main function symbol
+  struct FunctionSymbol * main_func_symbol = lookup_function_symbol(func_sym_table, "main");
+  if (main_func_symbol == NULL) {
+    printf("runtime error: main function not found\n");
+    return FAIL;
+  }
+
+  if (main_func_symbol->param_count != 0) {
+    printf("runtime error: main function has non-zero parameters\n");
+    return FAIL;
+  }
+
+  struct Value out_value;
+  int ret = invoke_function(main_func_symbol, NULL, 0, table, func_sym_table, &out_value);
+  return ret;
 }
 
 /******************************************************
@@ -2663,7 +2792,6 @@ enum TypeKind analyze_expression(struct ASTNode *node, struct SymbolTable *table
 
     return node->type_kind;
   } else if (node->kind == AST_CALL) {
-    // uttam
     struct FunctionSymbol *func_symbol = lookup_function_symbol(func_sym_table, node->function_name);
     if (func_symbol == NULL) {
       printf("semantic error: function '%s' is not declared'\n", node->function_name);
@@ -2674,7 +2802,7 @@ enum TypeKind analyze_expression(struct ASTNode *node, struct SymbolTable *table
     if (node->argument_count != func_symbol->param_count) {
       if (node->argument_count < func_symbol->param_count) {
         printf("semantic error: too few arguments to function '%s'\n", node->function_name);
-      } else {
+      } else if (node->argument_count > func_symbol->param_count) {
         printf("semantic error: too many arguments to function '%s'\n", node->function_name);
       }
       node->type_kind = TYPE_ERROR;
@@ -2715,7 +2843,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Fu
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_DECLARATION) {
-    return analyze_declaration(node, table, NULL, ctx, FALSE);
+    return analyze_declaration(node, table, func_sym_table, ctx, FALSE);
   } else if (node->kind == AST_EXPRESSION_STATEMENT) {
 
     enum TypeKind expression_type = TYPE_UNUSED;
@@ -3036,7 +3164,7 @@ int analyze_statement(struct ASTNode *node, struct SymbolTable *table, struct Fu
 // ;
 // variable declaration 
 // function definition 
-int analyze_global_item(struct ASTNode *node, struct SymbolTable *sym_table, struct FunctionSymbolTable *func_sym_table, struct SemanticContext *ctx) {
+int analyze_global_item(struct ASTNode *node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct SemanticContext *ctx) {
   if (node == NULL) {
     return FAIL;
   }
@@ -3045,7 +3173,7 @@ int analyze_global_item(struct ASTNode *node, struct SymbolTable *sym_table, str
     node->type_kind = TYPE_UNUSED;
     return SUCCESS;
   } else if (node->kind == AST_DECLARATION) {
-    return analyze_declaration(node, sym_table, func_sym_table, ctx, TRUE);
+    return analyze_declaration(node, table, func_sym_table, ctx, TRUE);
   } else if (node->kind == AST_FUNCTION) {
 
     if (!is_supported_type(node->function_type)) {
@@ -3054,8 +3182,8 @@ int analyze_global_item(struct ASTNode *node, struct SymbolTable *sym_table, str
       return FAIL;
     }
 
-    // Check against the symbol table
-    struct Symbol *symbol = lookup_symbol_current(sym_table, node->function_name);
+    // Check against the global variable symbol table
+    struct Symbol *symbol = lookup_symbol_current(table, node->function_name);
     if (symbol != NULL) {
       printf("semantic error: function '%s', redeclared as different kind of symbol\n", node->function_name);
       printf("semantic error note: previous declaration of '%s', with type '%s'\n", symbol->name, typekind_type_name(symbol->type)); 
@@ -3070,7 +3198,7 @@ int analyze_global_item(struct ASTNode *node, struct SymbolTable *sym_table, str
     ctx->current_ctx = &ctx_frame;
 
     struct SymbolTable local_semantic_table;
-    initialize_symbol_table(&local_semantic_table, sym_table);
+    initialize_symbol_table(&local_semantic_table, table);
 
     // Check if parameters exists, insert them in to local symbol table
     struct FunctionParam func_param = node->func_param;
@@ -3103,7 +3231,7 @@ int analyze_global_item(struct ASTNode *node, struct SymbolTable *sym_table, str
       }
     }
 
-    int ret = store_function_symbol(func_sym_table, node->function_type, node->function_name, func_param.count, &param_types[0]);
+    int ret = store_function_symbol(func_sym_table, node->function_type, node->function_name, func_param.count, &param_types[0], node);
     if (ret == FAIL) {
       freeSymbolTableContents(&local_semantic_table);
       ctx->current_ctx = ctx_frame.prev;
@@ -3142,7 +3270,7 @@ int analyze_global_item(struct ASTNode *node, struct SymbolTable *sym_table, str
   return FAIL;
 }
 
-int analyze_program(struct ASTNode *node, struct SymbolTable *sym_table, struct FunctionSymbolTable *func_table, struct SemanticContext *ctx) {
+int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct SemanticContext *ctx) {
   if (node == NULL) {
     printf("semantic error: program node is NULL\n");
     return FAIL;
@@ -3159,7 +3287,7 @@ int analyze_program(struct ASTNode *node, struct SymbolTable *sym_table, struct 
       return FAIL;
     }
 
-    if (analyze_global_item(node->statements[c], sym_table, func_table, ctx) == FAIL) {
+    if (analyze_global_item(node->statements[c], table, func_sym_table, ctx) == FAIL) {
       return FAIL;
     }
   }
@@ -4889,9 +5017,11 @@ int main(void) {
   }
 
   printf("--> Print tokens--\n");
+  /*
   for (int i = 0; i < token_count; i++) {
     print_token(tokens[i]);
   }
+  */
   if (result == FAIL) {
     printf("--> Tokenizer PHASE: FAILED\n");
     exit(-1);
@@ -4934,9 +5064,9 @@ int main(void) {
 
   result = analyze_program(program, &semantic_table, &function_symbol_table, &semantic_ctx);
 
+  print_debug_output(program, &semantic_table, &function_symbol_table);
   if (result == FAIL) {
     printf("--> SEMANTIC CHECK PHASE: FAILED\n");
-    print_debug_output(program, &semantic_table, &function_symbol_table);
     freeSymbolTableContents(&semantic_table);
     freeASTNode(program);
     free(icode);
@@ -4944,7 +5074,6 @@ int main(void) {
   }
 
   printf("--> SEMANTIC CHECK PHASE: PASS\n");
-  print_debug_output(program, &semantic_table, &function_symbol_table);
   freeSymbolTableContents(&semantic_table);
   printf("=====================================================\n");
 
@@ -4954,8 +5083,7 @@ int main(void) {
   struct SymbolTable runtime_table;
   initialize_symbol_table(&runtime_table, NULL);
 
-  result = eval_program(program, &runtime_table);
-
+  result = eval_program(program, &runtime_table, &function_symbol_table);
 
   if (result == FAIL) {
     printf("--> EVALUATION CHECK PHASE: FAILED\n");

@@ -234,9 +234,9 @@ Goal: move from statement scripts to real programs.
 - [ ] function declarations
 - [x] function definitions
 - [x] parameter lists
-- [ ] function calls
+- [x] function calls
 - [x] argument checking
-- [ ] return statements
+- [x] return statements
 - [x] return type checking
 - [x] parameter/local scopes
 - [x] function symbol table
