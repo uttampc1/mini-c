@@ -207,8 +207,8 @@ Goal: complete a solid structured miniC front end + interpreter.
 #### General improvements
 - [ ] improve tests
 - [ ] improve diagnostics / error messages
-- [ ] keep AST/type annotations consistent
-- [ ] keep scope behavior clean
+- [x] keep AST/type annotations consistent
+- [x] keep scope behavior clean
 - [ ] strengthen parser error handling gradually
 
 #### Recommended near-term order

@@ -221,6 +221,8 @@ int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct Func
 int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *out_value);
 enum EvalResult eval_statement(struct ASTNode * root, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *out_value);
 int eval_program(struct ASTNode * node, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table); 
+
+void store_symbol(struct SymbolTable *table, enum TypeKind type, const char *name, struct Value *value);
 void initialize_symbol_table(struct SymbolTable *table, struct SymbolTable *parent);
 
 struct Symbol  * lookup_symbol_current(struct SymbolTable *sym_table, const char *name); // current scope search
@@ -236,6 +238,7 @@ struct ASTNode * parse_empty(struct Parser *p);
 int add_node_to_program(struct ASTNode * program, struct ASTNode * node);
 int add_statement_to_block(struct ASTNode * node, struct ASTNode * statement);
 int is_assignment_compatible(enum TypeKind target_type, enum TypeKind source_type);
+int is_runtime_compatible(enum TypeKind target_type, enum TypeKind source_type); 
 
 enum TypeKind token_to_typekind(enum TokenKind type) {
   if (type == TOKEN_INT) {
@@ -992,8 +995,8 @@ void print_debug_output(struct ASTNode * program, struct SymbolTable *sym_table,
 }
 
 int invoke_function(struct FunctionSymbol *func,  struct Value *arg_values, int argument_count, struct SymbolTable *table, struct FunctionSymbolTable *func_sym_table, struct Value *return_value) {
-  if (func == NULL) {
-    printf("runtime error: function symbol is missing\n");
+  if (func == NULL || func->function_node == NULL || func->function_node->body == NULL) {
+    printf("runtime/internal error: function symbol and/or function ASTNode is missing\n");
     return FAIL;
   }
 
@@ -1006,22 +1009,25 @@ int invoke_function(struct FunctionSymbol *func,  struct Value *arg_values, int 
   }
 
   enum TypeKind return_type = func->return_type;
-  int param_count = func->param_count;
-  enum TypeKind *param_types = func->param_types;
-  struct ASTNode *function_node = func->function_node;
+  struct ASTNode *function_body = func->function_node->body;
 
-  if (function_node == NULL || function_node->body == NULL) {
-    printf("runtime error: '%s' function AST Node/body is NULL\n", func->name);
-    return FAIL;
-  }
-
-  struct ASTNode *function_body = function_node->body;
-  
+  // NOTE: lets bind the parameters and arguments from the caller
   struct SymbolTable local_runtime_table;
   initialize_symbol_table(&local_runtime_table, table);
 
-  // NOTE: we are not yet binding the parameters and arguments from the caller of this function
+  struct FunctionParam func_param = func->function_node->func_param;
+  for (int i=0; i < argument_count; i++) {
+    struct Value arg = arg_values[i];
+    struct Param param = func_param.params[i];
+    if (is_runtime_compatible(param.type_kind,  arg.type) != TRUE) {
+      freeSymbolTableContents(&local_runtime_table);
+      return FAIL;
+    }
 
+    store_symbol(&local_runtime_table, param.type_kind, param.identifier_name, &arg);
+  }
+
+  // invoke the function body
   enum EvalResult eval_ret = eval_statement(function_body, &local_runtime_table, func_sym_table, return_value);
   freeSymbolTableContents(&local_runtime_table);
   if (eval_ret == EVAL_RETURN) {
@@ -1035,7 +1041,7 @@ int invoke_function(struct FunctionSymbol *func,  struct Value *arg_values, int 
   } else if (eval_ret == EVAL_FAIL) {
     return FAIL;
   } else if (eval_ret == EVAL_OK) {
-    printf("runtime/internal error/warning: function finished without return\n");
+    printf("runtime error: function '%s', finished without return\n", func->name);
     return FAIL;
   }
 
@@ -1075,6 +1081,22 @@ int statement_guarantees_return(struct ASTNode * node) {
     }
 
     return then_returns && else_returns;
+  }
+
+  return FALSE;
+}
+
+int is_runtime_compatible(enum TypeKind target_type, enum TypeKind source_type) {
+  if (target_type == source_type) {
+    return TRUE;
+  }
+
+  if ((target_type == TYPE_FLOAT) && (source_type == TYPE_INT)) {
+    return TRUE;
+  }
+
+  if ((target_type == TYPE_INT) && (source_type == TYPE_FLOAT)) {
+    return TRUE;
   }
 
   return FALSE;
@@ -2124,8 +2146,6 @@ int eval_expression(struct ASTNode * node, struct SymbolTable *table, struct Fun
         }
         arg_values[i] = expr_value;
       }
-
-      // now check against function parameter types, if mis-match then error out
     }
 
     int ret = invoke_function(func_symbol, arg_values, node->argument_count, table, func_sym_table, out_value);
