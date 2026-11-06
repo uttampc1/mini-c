@@ -285,3 +285,6 @@ int main() {
   print(add(10, 20));
   return 0;
 }
+int f() { return 1; }
+int f();
+int main() { print(f()); return 0; }

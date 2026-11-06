@@ -220,7 +220,7 @@ Goal: complete a solid structured miniC front end + interpreter.
 6.  [x] `break`
 7.  [x] `continue`
 8.  [x] `for` version 1
-9.  [x] `for` version 2
+9.  [x] `for` version 2 with init, ....
 10. [x] `do_while`
 11. [x] `return`
 
@@ -231,7 +231,7 @@ Goal: complete a solid structured miniC front end + interpreter.
 Goal: move from statement scripts to real programs.
 
 #### Features
-- [ ] function declarations
+- [x] function declarations
 - [x] function definitions
 - [x] parameter lists
 - [x] function calls
@@ -321,7 +321,6 @@ Keep both for a while:
 
 This allows front-end behavior to be compared with lower-level forms.
 
----
 
 ### Phase 6: Add simple optimizations
 

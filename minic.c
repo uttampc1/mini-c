@@ -137,6 +137,7 @@ struct FunctionSymbol {
   int param_count;
   enum TypeKind param_types[MAX_PARAMS];
   struct ASTNode * function_node;
+  int is_defined;
 };
 
 struct FunctionSymbolTable {
@@ -208,6 +209,7 @@ struct ASTNode * createDoWhileNode(struct ASTNode * expr, struct ASTNode * body_
 struct ASTNode * createReturnNode(struct ASTNode * expr);
 struct ASTNode * createExpressionStatementNode(struct ASTNode * expr);
 struct ASTNode * createFunctionDefinitionNode(enum TypeKind type, char *name, struct ASTNode * block);
+struct ASTNode * createFunctionDeclarationNode(enum TypeKind type, char *name, struct ASTNode * block);
 struct ASTNode * createBlockNode();
 struct ASTNode * createProgramNode();
 struct ASTNode * createEmptyNode();
@@ -696,6 +698,20 @@ struct ASTNode * createFunctionDefinitionNode(enum TypeKind type, char *name, st
   return node;
 }
 
+struct ASTNode * createFunctionDeclarationNode(enum TypeKind type, char *name, struct ASTNode * body) {
+  struct ASTNode * node = createASTNode();
+  if (node == NULL) {
+    printf("AST error: couldn't allocate memory for function declaration ASTNode\n");
+    return NULL;
+  }
+
+  node->kind = AST_FUNCTION;
+  node->function_type = type;
+  strcpy(node->function_name, name);
+  node->body = NULL;
+  return node;
+}
+
 // Program node which holds a list of statements and count
 struct ASTNode * createProgramNode() {
   struct ASTNode * node = createASTNode();
@@ -805,6 +821,11 @@ void print_function_symbol_table(struct FunctionSymbolTable *table) {
       for (int i=0; i < func_symbol.param_count; i++) {
          printf("%s %s", i > 0 ? "," : "", typekind_type_name(func_symbol.param_types[i]));
       }
+      if (func_symbol.is_defined == FALSE) {
+        printf(" declaration");
+      } else {
+        printf(" definition");
+      }
       printf("\n");
   }
 
@@ -865,7 +886,10 @@ void print_ast_tree(struct ASTNode *node, int depth) {
     if (t->body != NULL) {
       printf("%*s %s \n", SPACES*(depth+1), " ", "BODY");
       print_ast_tree(t->body, depth+2);
+    } else {
+      printf("%*s %s \n", SPACES*(depth+1), " ", "DECLARATION");
     }
+
     
   } else if (t->kind == AST_CALL) {
     printf("%*s %s %s %s\n", SPACES*depth, " ", ast_node_type_name(t->kind), t->function_name, typekind_type_name(t->type_kind));
@@ -1284,12 +1308,54 @@ int store_function_symbol(struct FunctionSymbolTable *table, enum TypeKind retur
     return FAIL;
   }
 
+  if (function_node == NULL) {
+    printf("semantic error: function AST node is missing\n");
+    return FAIL;
+  }
+
   struct FunctionSymbol *symbol = NULL;
   for (int i = 0; i < table->count; i++) {
     symbol = &table->function_symbols[i];
     if (symbol->name != NULL && strcmp(symbol->name, name) == 0) {
-      printf("semantic error: function '%s' is already defined\n", name);
-      return FAIL;
+      // check if param count is same, and each param type is same, the we can ignore this
+      // else error otherwise.
+      int match_return_type = symbol->return_type == return_type ? 1 : 0;
+      int match_param_count = symbol->param_count == param_count ? 1 : 0;
+      int match_param_type = 1;
+      for (int p=0; p < param_count; p++) {
+        if (symbol->param_types[p] != param_types[p]) {
+          match_param_type = 0;
+          break;
+        }
+      }
+
+      // if signature conflicts → error
+      if (match_return_type == FALSE || match_param_count == FALSE || match_param_type == FALSE) {
+        printf("semantic error: conflicting types for '%s'\n", name);
+        return FAIL;
+      }
+
+      // if current node is declaration
+      if (function_node->body == NULL && symbol->is_defined == FALSE) {
+        printf("semantic note: function '%s' is already declared\n", name);
+        return SUCCESS;
+      }
+
+      // if current node is definition and symbol already defined: error
+      if (function_node->body != NULL && symbol->is_defined == TRUE) {
+        printf("semantic error: function '%s' is already defined\n", name);
+        return FAIL;
+      }
+
+      // if current symbol is declaration just return (duplicate declaration)
+      if (function_node->body == NULL) {
+        return SUCCESS;
+      }
+
+      // found declaration first and then definition to update the function node
+      table->function_symbols[i].is_defined = TRUE;
+      table->function_symbols[i].function_node = function_node;
+      return SUCCESS;
     }
   }
 
@@ -1306,6 +1372,7 @@ int store_function_symbol(struct FunctionSymbolTable *table, enum TypeKind retur
 
   struct FunctionSymbol new_symbol = {0};
 
+  new_symbol.is_defined = FALSE;
   strncpy(new_symbol.name, name, symbol_len);
   new_symbol.return_type = return_type;
   new_symbol.param_count = param_count;
@@ -1315,7 +1382,9 @@ int store_function_symbol(struct FunctionSymbolTable *table, enum TypeKind retur
     }
   }
   new_symbol.function_node = function_node;
-
+  if (function_node && function_node->body) {
+    new_symbol.is_defined = TRUE;
+  }
   table->function_symbols[table->count] = new_symbol;
   table->count++;
 
@@ -3226,9 +3295,9 @@ int analyze_global_item(struct ASTNode *node, struct SymbolTable *table, struct 
       for (int i=0; i < func_param.count; i++) {
         struct Param param = func_param.params[i];
         struct Value value = {0};
-        struct Symbol *symbol = lookup_symbol_current(&local_semantic_table, param.identifier_name);
-        if (symbol != NULL) {
-          if (symbol->type == param.type_kind) {
+        struct Symbol *param_symbol = lookup_symbol_current(&local_semantic_table, param.identifier_name);
+        if (param_symbol != NULL) {
+          if (param_symbol->type == param.type_kind) {
             printf("semantic error: redeclaration of variable ‘%s’\n", param.identifier_name);
           } else {
             printf("semantic error: conflicting types for ‘%s’\n", param.identifier_name);
@@ -3257,6 +3326,13 @@ int analyze_global_item(struct ASTNode *node, struct SymbolTable *table, struct 
       ctx->current_ctx = ctx_frame.prev;
       node->type_kind = TYPE_ERROR;
       return FAIL;
+    }
+
+    if (node->body == NULL) {
+      ctx->current_ctx = ctx_frame.prev;
+      node->type_kind = node->function_type;
+      freeSymbolTableContents(&local_semantic_table);
+      return SUCCESS;
     }
 
     if (node->body != NULL) {
@@ -3308,6 +3384,16 @@ int analyze_program(struct ASTNode *node, struct SymbolTable *table, struct Func
     }
 
     if (analyze_global_item(node->statements[c], table, func_sym_table, ctx) == FAIL) {
+      return FAIL;
+    }
+  }
+
+  // check if any function is not yet defined
+  for (int i = 0; i < func_sym_table->count; i++) {
+    struct FunctionSymbol *symbol = &func_sym_table->function_symbols[i];
+    // if current node is declaration
+    if (symbol->is_defined == FALSE) {
+      printf("semantic error: function '%s' is declared but never defined.\n", symbol->name);
       return FAIL;
     }
   }
@@ -4821,6 +4907,18 @@ struct ASTNode * parse_function_definition(struct Parser *p) {
 
   expect_token(p, TOKEN_RPAREN);
 
+  if (is_current_token(p, TOKEN_SEMICOLON)) {
+    expect_token(p, TOKEN_SEMICOLON);
+    struct ASTNode * node = createFunctionDeclarationNode(dataType, identifier->identifier_name, NULL);
+    if (node == NULL) {
+      freeASTNode(identifier);
+      p->has_error = 1;
+    }
+
+    node->func_param = func_param;
+    return node;
+  }
+
   if (!is_current_token(p, TOKEN_LBRACE)) {
     printf("parse error: expected '{' \n");
     p->has_error = 1;
@@ -5037,11 +5135,9 @@ int main(void) {
   }
 
   printf("--> Print tokens--\n");
-  /*
   for (int i = 0; i < token_count; i++) {
     print_token(tokens[i]);
   }
-  */
   if (result == FAIL) {
     printf("--> Tokenizer PHASE: FAILED\n");
     exit(-1);
